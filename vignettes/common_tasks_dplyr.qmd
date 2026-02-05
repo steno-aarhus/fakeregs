@@ -23,19 +23,34 @@ When processing data in R scripts, you're using R's processing engine (sometimes
 
 In this guide, we'll use two of these engines - Arrow, accessible through the `arrow` package, and DuckDB, accessible through the `duckplyr` package - both of which are installed on the virtual machines of Statistics Denmark and can be used with standard `dplyr` syntax as if they were normal R objects.
 
-First, let's get the main pros and cons to using these external engines in R settled:
+#### what are these new things?
 
-- Pros: 
-   - They're much more computationally efficient, so you'll get your processing done much faster
-   - They take up less memory resources on the server, so you're less likely to crash your session or experience instability or unresponsiveness (and so are everyone else using the server at the same time as you).
-   
-- Cons:
-   - Objects created by commands interacting with these engines don't look and behave exactly as you're used to when working in R, so you will need to get to know them.
-   - They don't support **all** of R's functionality. Their main purpose is to facilitate data cleaning (e.g. row filtering, variable selection/creation, table joins) and relatively simple analytics (e.g. sorting, calculate means etc.). You will still be doing your regressions in R.
+-   Parquet
+    -   Apache Parquet is an open-source project made by the Apache Foundation. It is **a column-oriented data file format designed for efficient data storage and retrieval**
+    -   In plain language, this means that it's a way to **store data** in files on disk in a way that saves disk space and let's the computer **read data** from the disk as fast as possible.
+    -   Parquet files can be created with several tools, but in R this is mainly done using functions from the `arrow` package (`write_parquet()` or `write_dataset()`)
+-   Arrow
+    -   Apache Arrow is also an open-source project made by the Apache Foundation. It is **a language-independent memory format organized for efficient analytic operations**
+    -   In plain language, this means that it's a way to **structure data** in a way that let's the computer **process data** as efficiently as possible. How this is done and what separates Arrow from other formats like R, SAS or DuckDB is beyond the scope of this guide. This is all done "under the hood" anyway, and as a user you don't need to know the inner workings to take advantage of it.
+    -   The `arrow` R-package provides R users access to many of the features of Apache Arrow through base R and `tidyverse` functions.
+-   DuckDB is an open-source project made by DuckDB Labs/the DuckDB Foundation. It is **a fast, in-process, portable analytical database system**
+    -   In plain language, this means that it's a way to **structure and/or store data** in a way that facilitates **efficient data processing and analysis**. The in-process and portable part refers to DuckDB being interoperable with a lot of other data storage formats and programming language processing engines, including Arrow and R, which allows the user to efficiently read/convert most data types into a DuckDB database without the need to set up a dedicated SQL database server in a separate workflow.
+    -   In a sense, DuckDB can do alone what Parquet and Arrow can do in combination, but it also plays well with them, as it can e.g. read Parquet files or Arrow Table data very fast.
+    -   The `duckplyr` R-package runs all of your existing `dplyr` code, using DuckDB where possible to calculate results faster and allow processing of larger-than-memory datasets (by being very memory-efficient and by sometimes writing data to temporary `.duckdb` files on disk if needed).
+-   As you can see, the aims of `duckplyr` and `arrow` are similar: to let R users use a more efficient storage and processing engine than native R, with having to learn the language of those engines.
+
+#### What are main pros and cons to using these external engines in R:
+
+-   Pros:
+    -   They're much more computationally efficient, so you'll get your processing done much faster
+    -   They take up less memory resources on the server, so you're less likely to crash your session or experience instability or unresponsiveness (and so are everyone else using the server at the same time as you).
+-   Cons:
+    -   Objects created by commands interacting with these engines don't look and behave exactly as you're used to when working in R, so you will need to get to know them.
+    -   They don't support **all** of R's functionality. Their main purpose is to facilitate data cleaning (e.g. row filtering, variable selection/creation, table joins) and relatively simple analytics (e.g. sorting, calculate means etc.). You will still be doing your regressions in R.
 
 ### Getting started with Arrow/`arrow` and DuckDB/`duckplyr`
 
-Remember: The goal of using `arrow` or `duckplyr` is to use their engines to read and wrangle the massive raw datasets that make up most registers. At some point - after a lot of filtering, selection, joining etc. - this data will be cleaned to the variables you actually use in your analyses, which will fit in a size that R can handle without breaking a sweat, e.g. a handful of tables consisting of million of rows. At this point, there is no longer much advantage to using either back-end over R's engine, and you can safely use R's engine to execute your custom functions or other operations not support by the other back-ends. You may find yourself needing to use functions that aren't supported by `arrow` or `duckplyr` earlier in your pipeline, and that's fine as well - just try to think of ways to reduce the size of the data as much as possible before having to fall back to using R's engine. If need be, you can even export the data back onto the Arrow or DuckDB engine after it's been pulled into R, but that's beyond the scope of this guide. 
+Remember: The goal of using `arrow` or `duckplyr` is to use their engines to read and wrangle the massive raw datasets that make up most registers. At some point - after a lot of filtering, selection, joining etc. - this data will be cleaned to the variables you actually use in your analyses, which will fit in a size that R can handle without breaking a sweat, e.g. a handful of tables consisting of million of rows. At this point, there is no longer much advantage to using either back-end over R's engine, and you can safely use R's engine to execute your custom functions or other operations not support by the other back-ends. You may find yourself needing to use functions that aren't supported by `arrow` or `duckplyr` earlier in your pipeline, and that's fine as well - just try to think of ways to reduce the size of the data as much as possible before having to fall back to using R's engine. If need be, you can even export the data back onto the Arrow or DuckDB engine after it's been pulled into R, but that's beyond the scope of this guide.
 
 The main point of surprise, confusions, and frustration with these engines is usually their *lazy evaluation* vs. R's default *eager evaluation*, which leads to their objects and outputs by default being connections or pointers to a not-yet-needed-and-therefore-non-existing table of data, where R would have executed the computations and generated a table that you could see with your own eyes.
 
@@ -47,32 +62,34 @@ Both packages work by "hi-jacking" `dplyr` functions called on `arrow` or `duckp
 
 Both packages use `dplyr::collect()` to force execution of commands in their engines and pull the results into R, and `dplyr::compute()` to connect data from another source to their engine (e.g. move/convert a `tibble` in R to an Arrow or DuckDB table). `arrow` and `duckplyr` support each other very well, and you can efficiently convert an Arrow Table/dataset into a DuckDB database (and vice versa). The examples below will make use of this when loading in the data - which is stored in Parquet files as a dataset of Arrow Tables - and convert the Arrow connection to a DuckDB connection.
 
-A final note on joining tables before proceeding: To execute joins on their engines, both packages require both of the join's incoming tables to formatted as either two Arrow or DuckDB tables. Furthermore, the tables must have the same connection source, but this is beyond the scope of this guide (for now at least) 
-### `arrow` vs. `duckplyr`
+A final note on joining tables before proceeding: To execute joins on their engines, both packages require both of the join's incoming tables to formatted as either two Arrow or DuckDB tables. Furthermore, the tables must have the same connection source, but this is beyond the scope of this guide (for now at least) \### `arrow` vs. `duckplyr`
 
 In both `arrow` and `duckplyr`, you can use `dplyr::collect()` to signal their engine to start executing the commands (you start cooking), but other commands can also force them to execute any "shopping list" of commands previously executed on their objects in R.
 
-While ´arrow` supports a lot of operations from R, it will sometimes throw an error when encountering a few operators. On the contrary, `duckplyr` supports nearly all `dplyr` commands, and when `duckplyr` encounters an R command it cannot translate to something the DuckDB engine can execute, it will - in most cases - automatically pull the data into R and "fall back" to executing them in R's engine.
+While ´arrow`supports a lot of operations from R, it will sometimes throw an error when encountering a few operators. On the contrary,`duckplyr`supports nearly all`dplyr`commands, and when`duckplyr\` encounters an R command it cannot translate to something the DuckDB engine can execute, it will - in most cases - automatically pull the data into R and "fall back" to executing them in R's engine.
 
-For this reason, it's usually worth using DuckDB through `duckplyr` rather than Arrow through ´arrow`, but both are blazing fast and can get you through the most heavy parts of your data processing.
+For this reason, it's usually worth using DuckDB through `duckplyr` rather than Arrow through ´arrow\`, but both are blazing fast and can get you through the most heavy parts of your data processing.
 
-One reason to use `arrow` instead of `duckplyr` is if your data is saved to disk as Arrow Tables in Parquet files, and you don't want to spend the first few minutes (and system resources) it takes `dplyr::compute()` to convert it into a DuckDB format that `duckplyr` can work with. By default, the DuckDB database produced by `dplyr::compute()` is temporary and is deleted when the session ends, but you can choose to save the DuckDB database on the disk as a `.duckdb` file that you can read directly from R with `duckplyr`. But for now, this is out of scope of this guide.
-      
+One reason to use `arrow` instead of `duckplyr` is if your data is saved to disk as Arrow Tables in Parquet files, and you don't want to spend the first few minutes (and system resources) it takes `dplyr::compute()` to convert a whole register into a DuckDB format that `duckplyr` can work with. By default, the DuckDB database produced by `dplyr::compute()` is temporary and is deleted from memory (and disk, if it exceeds the memory capacity of the system) when the session ends, but you can choose to save the DuckDB database on the disk as a `.duckdb` file that you can read directly from R with `duckplyr`. But for now, this is out of scope of this guide.
+
 ### Further reading:
 
 There is good official documentation to get started using `arrow`and `duckplyr`:
 
-- `arrow`:
-   -  [data wrangling](https://arrow.apache.org/docs/r/articles/data_wrangling.html)
-   -  [support & limitations](https://arrow.apache.org/docs/r/reference/acero.html)
-- `duckplyr`:
-   - [supported functions](https://duckplyr.tidyverse.org/articles/limits.html)
-   - [unsupported dplyr functions](https://duckplyr.tidyverse.org/reference/unsupported.html)
-
+-   `arrow`:
+    -   [data wrangling](https://arrow.apache.org/docs/r/articles/data_wrangling.html)
+    -   [support & limitations](https://arrow.apache.org/docs/r/reference/acero.html)
+-   `duckplyr`:
+    -   [supported functions](https://duckplyr.tidyverse.org/articles/limits.html)
+    -   [unsupported dplyr functions](https://duckplyr.tidyverse.org/reference/unsupported.html)
 
 ## Setup
 
-First, we need to generate the synthetic data to mimic the DST environment and run the examples on
+Let's get to work with some actual fake data and real code!
+
+Through-out the examples, I use the `package::function` syntax to be explicit about which packages the functions are from. In a normal workflow, this isn't necessary after loading the libraries - e.g. after running `library(dplyr)`, you can use e.g. `select()` instead of `dplyr::select()` just fine.
+
+First, we need to generate the synthetic data to mimic the DST environment and run the examples on:
 
 ```{r setup}
 knitr::opts_chunk$set(message = FALSE)
@@ -86,21 +103,23 @@ library(arrow)
 library(duckplyr)
 library(fs)
 
-# Source (run) the script the import the generaing functions:
+# Source (run) the script containing the functions to generate synthetic data to import them:
 source(here::here("R", "generate_data.R"))
 
-# Save to disk as .parquet
+# Create BEF directory/folder:
 fs::dir_create(here::here("data-parquet", "bef"))
-arrow::write_parquet(generate_bef(), here::here("data-parquet", "bef", "bef.parquet"))
+
+# Generate BEF and save to disk
+arrow::write_dataset(generate_bef(generate_background_pop()), here::here("data-parquet", "bef"), format = "parquet", partitioning = "year")
 ```
 
 ## BEF
 
 Tasks:
 
-1.  Load in bef.
+1.  Load in BEF
     1.  Normally, this will be from disk: either single-year files or a combined dataset containing data of all years.
-    2.  Here, we mimic having the raw data converted to Parquet format with files from each register stored in separate folders. So first, we generate the synthetic data, save it to disk as `.parquet` and then load it from disk.
+    2.  Here, we mimic having the raw data converted to Parquet format with files from each register stored in separate folders (similar to the output from the `fastregs` package. So first, we generate the synthetic data, save it to disk as `.parquet` files by year, and then load it from disk.
 2.  Filter the data to what is needed for your planned analyses.
     1.  This is a good way to reduce the size of the data you're working with, which will speed processing times up and make your sessions more stable.
     2.  For example, you can filter your data to the range of years and/or ages used in your analyses.
@@ -109,7 +128,7 @@ Tasks:
 
 ### 1: Load
 
-
+The key step here is to read the Arrow Tables from the Parquet files (`bef_folder |> arrow::open_dataset(unify_schemas = TRUE)`) into DuckDB (by piping it into `arrow::to_duckdb() |> dplyr::compute()`)
 
 ```{r}
 bef_folder <- here::here("data-parquet", "bef")
@@ -122,8 +141,8 @@ In this example, we only want adults alive and residing in Denmark between 2020 
 
 ```{r}
 bef_filtered <-
-  bef |> filter(year %in% 2020:2024 & ALDER >= 18) |>
-  select(PNR, year, FOED_DAG, KOEN, CIVST, REG, OPR_LAND)
+  bef |> dplyr::filter(year %in% 2020:2024 & ALDER >= 18) |>
+  dplyr::select(PNR, year, FOED_DAG, KOEN, CIVST, REG, OPR_LAND)
 
 # Keep the list of pnr's for later filtering:
 filtered_pnrs <- bef_filtered$PNR
