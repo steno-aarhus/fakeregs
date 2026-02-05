@@ -1,33 +1,50 @@
-#' Generate longitudinal synthetic bef data
+#' Generate a consistent background population for synthetic registers
 #'
-#' @param years_generated A vector of years to generate data points for.
-#' @param rows_per_year How many individual PNRs to generate data for each year.
-#' @param turnover_per_year The number of individual PNRs left out of any given year per year generated.
+#' @description
+#' Creates a "master" tibble of unique individuals with stable attributes (PNR, gender, birthday, origin).
+#' This tibble serves as the consistency anchor for other synthetic register functions (e.g., \code{\link{generate_bef}}),
+#' ensuring that the same PNR always corresponds to the same person across different datasets,
+#' and that the synthetic registers are limited to these PNRs in order to facilitate joins.
 #'
-#' @returns A tibble containing multiple years of a synthetic bef register (featuring a selection of commonly used variables)
+#' @param years_to_generate A vector of years the simulation is intended to cover.
+#'   Used to calculate the total pool size needed to simulate population turnover.
+#' @param pnrs_per_year Integer. The target population size per year. Defaults to 1000.
+#' @param turnover_per_year Integer. The "buffer" of extra individuals added per year to simulate churn/turnover.
+#'   Defaults to 20.
+#' @param seed Integer. The random seed used to ensure reproducibility of the PNR list. Defaults to 2109.
+#'
+#' @returns A \code{tibble} containing the stable population pool with variables:
+#' \itemize{
+#'   \item \code{PNR}: Random 12-digit Personal ID string.
+#'   \item \code{OPR_LAND}: Origin country code (ensures at least one of every foreign code).
+#'   \item \code{KOEN}: Gender code.
+#'   \item \code{FOED_DAG}: Birth date.
+#' }
+#'
+#' @importFrom checkmate assert_number
+#' @importFrom dplyr tibble sample_n mutate select
 #' @export
 #'
-#' @seealso See the `vignette("register_references")` for the documentation used to create this function
-#'
 #' @examples
-#' generate_bef(
-#'   years_generated = 2015:2024,
-#'   rows_per_year = 1000,
+#' # Generate a background population pool
+#' background_pop <- generate_background_pop(
+#'   years_to_generate = 2015:2024,
+#'   pnrs_per_year = 1000,
 #'   turnover_per_year = 20
 #' )
-generate_bef <- function(years_generated = 2015:2024,
-                         rows_per_year = 1000,
-                         turnover_per_year = 20,
-                         seed = 2109) {
-  set.seed(seed = seed)
+generate_background_pop <- function(years_to_generate = 2015:2024,
+                                    pnrs_per_year = 1000,
+                                    turnover_per_year = 20,
+                                    seed = 2109) {
+  # Set the seed locally for this function call
+  set.seed(seed)
 
-  #  SETUP POPULATION SIZE
-
-  # Calculate total size of the unique population pool based on inputs
-  total_background_rows <- rows_per_year + (length(years_generated) * turnover_per_year)
+  # Calculate required pool size
+  total_background_rows <- pnrs_per_year + (length(years_to_generate) * turnover_per_year)
 
   # GENERATE BACKGROUND POPULATION (time-stable Variables)
   # P.S. Yes, PNR and KOEN can change over time for a person changing legal sex, but that's beyond the current scope
+
 
   # Setup OPR_LAND vector
 
@@ -60,15 +77,14 @@ generate_bef <- function(years_generated = 2015:2024,
 
   n_foreign <- length(opr_country_codes)
   # Ensure we don't have negative repetition if the pool is smaller than the code list
-  if (total_background_rows < n_foreign) {
-    stop("Total population is smaller than the number of unique country codes.")
-  }
+
   n_danish <- total_background_rows - n_foreign
 
   opr_land_vector <- sample(c(opr_country_codes, rep(5100, n_danish)))
 
-  # Generate the stable "Background" Tibble
-  background_pop <- tibble::tibble(
+
+  # Generate Tibble
+  tibble::tibble(
     # Stable ID
     PNR = replicate(total_background_rows, paste0(sample(0:9, 12, replace = TRUE), collapse = "")),
 
@@ -78,33 +94,80 @@ generate_bef <- function(years_generated = 2015:2024,
     # Stable Gender
     KOEN = sample(c(1, 2), total_background_rows, replace = TRUE),
 
-    # Stable Birthday
+
     # Cap max birthday at start of sequence - 1 year to ensure valid ALDER in all generated years
     FOED_DAG = sample(
-      seq(as.Date("1950-01-01"), as.Date(paste0(min(years_generated) - 1, "-12-31")), by = "day"),
+      seq(as.Date("1950-01-01"), as.Date(paste0(min(years_to_generate) - 1, "-12-31")), by = "day"),
       total_background_rows,
       replace = TRUE
     )
   )
+}
 
-  # HELPER FUNCTION: YEARLY SAMPLING
 
-  generate_year_sample <- function(curr_year, population_pool) {
+#' Generate longitudinal synthetic BEF (Population) data
+#'
+#' @description
+#' Generates a synthetic longitudinal dataset mimicking the Danish "BEF" (Befolkning) register.
+#' It uses a pre-generated background population to ensure consistency of stable variables
+#' (PNR, Gender, Birthday, Origin) across different synthetic registers.
+#'
+#' @param background_df A tibble containing the stable background population.
+#'   This should be generated using \code{\link{generate_background_pop}}.
+#' @param pnrs_per_year Integer. The number of unique individuals (rows) to sample for each year.
+#'   Defaults to 1000.
+#' @param years_to_generate A vector of integers or characters representing the years
+#'   to generate data for (e.g., \code{2015:2024}). Defaults to 2015:2024.
+#'
+#' @returns A \code{tibble} containing the synthetic BEF register with the following variables:
+#' \itemize{
+#'   \item \code{PNR}: Personal identification number (stable).
+#'   \item \code{KOEN}: Gender (1 = Male, 2 = Female) (stable).
+#'   \item \code{FOED_DAG}: Date of birth (stable).
+#'   \item \code{ALDER}: Age in years (calculated relative to year end).
+#'   \item \code{REG}: Region code (time-varying).
+#'   \item \code{CIVST}: Civil status code (time-varying).
+#'   \item \code{OPR_LAND}: Country of origin code (stable).
+#'   \item \code{year}: The reference year for the observation.
+#' }
+#'
+#' @export
+#'
+#' @examples
+#' # 1. Generate the stable background population
+#' pop_db <- generate_background_pop(
+#'   years_to_generate = 2015:2024,
+#'   pnrs_per_year = 1000,
+#'   turnover_per_year = 20
+#' )
+#'
+#' # 2. Generate the longitudinal BEF register
+#' df_bef <- generate_bef(
+#'   background_df = pop_db,
+#'   pnrs_per_year = 1000,
+#'   years_to_generate = 2015:2024
+#' )
+generate_bef <- function(background_df,
+                         n_samples = 1000,
+                         years_to_generate = 2015:2024) {
+  # A HELPER FUNCTION FOR YEARLY SAMPLING
+  generate_year_sample <- function(curr_year, background_df, n_samples = n_samples) {
+    force(n_samples)
     year_char <- as.character(curr_year)
     civst_codes <- c("D", "E", "F", "G", "L", "O", "P", "U", "9")
 
-    # Sample specific rows for this year
-    population_pool |>
-      sample_n(rows_per_year, replace = FALSE) |>
+    # Slice specific rows of PNRs to generate this year
+    background_df |>
+      dplyr::slice_sample(n = n_samples, replace = FALSE) |>
       # Add time-varying Variables (Generated at random each year)
       dplyr::mutate(
         REG = sample(
           c(81, 82, 83, 84, 85),
-          n(),
+          dplyr::n(),
           replace = TRUE,
           prob = c(0.1, 0.22, 0.21, 0.32, 0.15)
         ),
-        CIVST = sample(civst_codes, n(), replace = TRUE),
+        CIVST = sample(civst_codes, dplyr::n(), replace = TRUE),
         year = year_char,
 
         # Calculate ALDER relative to the current year
@@ -118,8 +181,7 @@ generate_bef <- function(years_generated = 2015:2024,
   }
 
   # EXECUTE MAP & RETURN
-
-  result <- purrr::map(years_generated, \(yr) generate_year_sample(yr, background_pop)) |>
+  result <- purrr::map(years_to_generate, \(yr) generate_year_sample(yr, background_df, n_samples)) |>
     purrr::list_rbind()
 
   return(result)

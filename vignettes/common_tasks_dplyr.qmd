@@ -41,14 +41,6 @@ The main point of surprise, confusions, and frustration with these engines is us
 
 A practical way to understand the *lazy evaluation* used by both `arrow` and `duckplyr`, is to think of it like grocery shopping. R's default *eager evaluation* goes shopping as soon as you think of some ingredient (execute a command in R) that you will need for cooking in the coming days, whereas *lazy evaluation* writes the thoughts down in a shopping list (a SQL query), but doesn't go shopping until you actually start cooking, and only buys the ingredients needed for the dish you've started to cook. This way, it only buys the ingredients (reads the data) you actually need, not what you *thought* or *planned* to use, so it doesn't have to carry as much, and nothing goes to waste. Furthermore, since the ingredients stay in the store as long as possible, it doesn't fill up your refrigerator (memory) with unnecessary items (data). This is why *lazy evaluation* is sometimes called *just-in-time evaluation*.
 
-In both `arrow` and `duckplyr`, you can use `dplyr::collect()` to signal their engine to start executing the commands (you start cooking), but other commands can also force them to execute any "shopping list" of commands previously executed on their objects in R.
-
-While ´arrow` supports a lot of operations from R, it will sometimes throw an error when encountering a few operators. On the contrary, `duckplyr` supports nearly all `dplyr` commands, and when `duckplyr` encounters an R command it cannot translate to something the DuckDB engine can execute, it will - in most cases - automatically pull the data into R and "fall back" to executing them in R's engine.
-
-For this reason, it's usually worth using DuckDB through `duckplyr` rather than Arrow through ´arrow`, but both are blazing fast and can get you through the most heavy parts of your data processing.
-      
-There is good official documentation to get started using `arrow` ([data wrangling](https://arrow.apache.org/docs/r/articles/data_wrangling.html) and [support/limitations](https://arrow.apache.org/docs/r/reference/acero.html)) and `duckplyr`([supported functions](https://duckplyr.tidyverse.org/articles/limits.html), and [unsupported dplyr functions](https://duckplyr.tidyverse.org/reference/unsupported.html))
-
 ### Arrow/`arrow` and DuckDB/`duckplyr` in practice
 
 Both packages work by "hi-jacking" `dplyr` functions called on `arrow` or `duckplyr` table objects and translating them to their engines. So, once you've loaded your data as such an object, you simply write the same `dplyr` code you're used to writing (and if you use `dplyr` commands on a "normal" R object, e.g. a `tibble`, this is handled by `dplyr` as if `arrow` and `duckplyr` didn't exist).
@@ -56,6 +48,27 @@ Both packages work by "hi-jacking" `dplyr` functions called on `arrow` or `duckp
 Both packages use `dplyr::collect()` to force execution of commands in their engines and pull the results into R, and `dplyr::compute()` to connect data from another source to their engine (e.g. move/convert a `tibble` in R to an Arrow or DuckDB table). `arrow` and `duckplyr` support each other very well, and you can efficiently convert an Arrow Table/dataset into a DuckDB database (and vice versa). The examples below will make use of this when loading in the data - which is stored in Parquet files as a dataset of Arrow Tables - and convert the Arrow connection to a DuckDB connection.
 
 A final note on joining tables before proceeding: To execute joins on their engines, both packages require both of the join's incoming tables to formatted as either two Arrow or DuckDB tables. Furthermore, the tables must have the same connection source, but this is beyond the scope of this guide (for now at least) 
+### `arrow` vs. `duckplyr`
+
+In both `arrow` and `duckplyr`, you can use `dplyr::collect()` to signal their engine to start executing the commands (you start cooking), but other commands can also force them to execute any "shopping list" of commands previously executed on their objects in R.
+
+While ´arrow` supports a lot of operations from R, it will sometimes throw an error when encountering a few operators. On the contrary, `duckplyr` supports nearly all `dplyr` commands, and when `duckplyr` encounters an R command it cannot translate to something the DuckDB engine can execute, it will - in most cases - automatically pull the data into R and "fall back" to executing them in R's engine.
+
+For this reason, it's usually worth using DuckDB through `duckplyr` rather than Arrow through ´arrow`, but both are blazing fast and can get you through the most heavy parts of your data processing.
+
+One reason to use `arrow` instead of `duckplyr` is if your data is saved to disk as Arrow Tables in Parquet files, and you don't want to spend the first few minutes (and system resources) it takes `dplyr::compute()` to convert it into a DuckDB format that `duckplyr` can work with. By default, the DuckDB database produced by `dplyr::compute()` is temporary and is deleted when the session ends, but you can choose to save the DuckDB database on the disk as a `.duckdb` file that you can read directly from R with `duckplyr`. But for now, this is out of scope of this guide.
+      
+### Further reading:
+
+There is good official documentation to get started using `arrow`and `duckplyr`:
+
+- `arrow`:
+   -  [data wrangling](https://arrow.apache.org/docs/r/articles/data_wrangling.html)
+   -  [support & limitations](https://arrow.apache.org/docs/r/reference/acero.html)
+- `duckplyr`:
+   - [supported functions](https://duckplyr.tidyverse.org/articles/limits.html)
+   - [unsupported dplyr functions](https://duckplyr.tidyverse.org/reference/unsupported.html)
+
 
 ## Setup
 
