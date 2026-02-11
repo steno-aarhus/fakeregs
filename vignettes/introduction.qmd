@@ -69,11 +69,11 @@ A final note on joining tables before proceeding: To execute joins on their engi
 
 In both `arrow` and `duckplyr`, you can use `dplyr::collect()` to signal their engine to start executing the commands (you start cooking), but other commands can also force them to execute any "shopping list" of commands previously executed on their objects in R.
 
-While \`arrow\``supports a lot of operations from R, it will sometimes throw an error when encountering a few operators. On the contrary,`duckplyr`supports nearly all`dplyr`commands, and when`duckplyr\` encounters an R command it cannot translate to something the DuckDB engine can execute, it will - in most cases - automatically pull the data into R and "fall back" to executing them in R's engine.
+While `arrow` supports a lot of operations from R, it will sometimes throw an error when encountering a few operators. On the contrary,`duckplyr` supports nearly all`dplyr`commands, and when`duckplyr` encounters an R command it cannot translate to something the DuckDB engine can execute, it will - in most cases - automatically pull the data into R and "fall back" to executing them in R's engine.
 
 For this reason, it's usually worth using DuckDB through `duckplyr` rather than Arrow through ´arrow\`, but both are blazing fast and can get you through the most heavy parts of your data processing.
 
-One reason to use `arrow` instead of `duckplyr` is if your data is saved to disk as Arrow Tables in Parquet files, and you don't want to spend the first few minutes (and system resources) it takes `dplyr::compute()` to convert a whole register into a DuckDB format that `duckplyr` can work with. By default, the DuckDB database produced by `dplyr::compute()` is temporary and is deleted from memory (and disk, if it exceeds the memory capacity of the system) when the session ends, but you can choose to save the DuckDB database on the disk as a `.duckdb` file that you can read directly from R with `duckplyr`. But for now, this is out of scope of this guide.
+One reason to use `arrow` instead of `duckplyr` is if your data is saved to disk as Arrow Tables in Parquet files, and you don't want to spend the first few minutes (and system resources) it takes `dplyr::compute()` to convert a whole register into a DuckDB format that `duckplyr` can work with. By default, the DuckDB database produced by `dplyr::compute()` is temporary and is deleted from memory (and disk, if it exceeds the memory capacity of the system) when the session ends, but you can choose to save the DuckDB database on the disk as a `.duckdb` file that you can read directly from R with `duckplyr` later if you wish to . But for now, this is out of scope of this guide.
 
 ### Further reading:
 

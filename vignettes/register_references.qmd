@@ -5,15 +5,64 @@ format: html
 editor: visual
 ---
 
+# Variables in synthetic datasets and references if possible
+
+[Overview of all registers/tables and their variables](https://www.dst.dk/extranet/forskningvariabellister/Oversigt%20over%20registre.html), with links to some documentation
+
 ## BEF
 
 [Full variable list](https://www.dst.dk/extranet/ForskningVariabellister/BEF%20-%20Befolkningen.html)
 
-Variables in synthetic dataset:
+-   [pnr](https://www.dst.dk/da/Statistik/dokumentation/Times/Forskningsservice/PNR): Personnummer
+-   [koen](https://www.dst.dk/da/Statistik/dokumentation/Times/Moduldata-for-Befolkning-og-valg/KOEN): Køn
+-   [foed_dag](https://www.dst.dk/da/Statistik/dokumentation/Times/Moduldata-for-Befolkning-og-valg/FOED-DAG): Fødselsdato
+-   [reg](https://www.dst.dk/da/Statistik/dokumentation/Times/Moduldata-for-Befolkning-og-valg/REG): Region
+-   [civst](https://www.dst.dk/da/Statistik/dokumentation/Times/Moduldata-for-Befolkning-og-valg/CIVST): Civilstand
+-   [opr_land](https://www.dst.dk/da/Statistik/dokumentation/Times/Moduldata-for-Befolkning-og-valg/OPR-LAND): Oprindelsesland
 
--   [PNR](https://www.dst.dk/da/Statistik/dokumentation/Times/Forskningsservice/PNR): Personnummer
--   [KOEN](https://www.dst.dk/da/Statistik/dokumentation/Times/Moduldata-for-Befolkning-og-valg/KOEN): Køn
--   [FOED_DAG](https://www.dst.dk/da/Statistik/dokumentation/Times/Moduldata-for-Befolkning-og-valg/FOED-DAG): Fødselsdato
--   [REG](https://www.dst.dk/da/Statistik/dokumentation/Times/Moduldata-for-Befolkning-og-valg/REG): Region
--   [CIVST](https://www.dst.dk/da/Statistik/dokumentation/Times/Moduldata-for-Befolkning-og-valg/CIVST): Civilstand
--   [OPR_LAND](https://www.dst.dk/da/Statistik/dokumentation/Times/Moduldata-for-Befolkning-og-valg/OPR-LAND): Oprindelsesland
+
+## LPR
+
+### LPR2 (from 1977 through 2018)
+
+[Full documentation](https://www.esundhed.dk/Dokumentation/DocumentationExtended?id=5) (scroll to bottom of page for variables, not possible to link directly)
+
+#### LPR_ADM
+
+-   pnr: ID: "Personnummer"
+-   recnum: Contact record number: "Recordnummer"
+-   d_inddto: Date of beginning of a contact (hospital admission or first outpatient consultation): "Kontaktens startdato"
+-   [c_spec](https://www.dst.dk/da/Statistik/dokumentation/Times/moduldata-for-sociale-forhold--sundhedsvaesen--retsvaesen/spec): Specialty of department: "Stamafdelingens hovedspeciale"
+
+#### LPR_DIAG
+
+Diagnoses prior to 1994 were coded in the ICD-8 schema. Diagnoses from 1994 onward were coded using the ICD-10 schema. [The SKS Browser](https://medinfo.dk/sks/brows.php) is a great tool to look up diseases and their codes, and especially the Danish variations over the standard ICD-10 codes, e.g. the DZ-subcodes relevant for some outcomes such as uncomplicated pregnancies, and the ZZ procedure codes for examinations and procedures performed (this data is in the `sksube` table/register, however, and is not currently in the scope of this guide).
+
+-   recnum: Contact record number: "Recordnummer"
+-   [c_diagtype](https://www.esundhed.dk/Dokumentation/-/media/Files/Dokumentation/Landspatientregisteret/5_Kodeark_LPR---pdf.ashx): Diagnosetype (main/hoved/A-diagnose, secondary/bi/B-diagnose, or referral/henvisnings/H-diagnose)
+-   [c_diag](https://www.dst.dk/da/Statistik/dokumentation/Times/forebyggelsesregistret/diag): Diagnosekode
+
+### LPR3: LPR A (2019 onward)
+
+Compared to LPR2, LPR3 contains finer-grained data across a patient's care journey. For example, LPR3 should contain a primary diagnosis for each outpatient consultation, whereas all consultations in a care track (e.g. all recurrent visits as part of diabetes care in a hospital outpatient clinic) in LPR2 would result in only a single primary diagnosis (and secondary diagnoses, if any) mapped to the date of the first and last contact in that care track.
+
+At the time of writing, LPR A is practically a secret. There is no publicly available official documentation. It is planned to completely supersede the first version of LPR3 (LPR_F, which is no longer available) and will cover all the years of LPR3 data (2019 onward), and even a few years of LPR2 (2017 onward).
+
+#### LPR_A_KONTAKT
+
+[DST's variable list](https://www.dst.dk/extranet/ForskningVariabellister/LPR_A_KONTAKT%20-%20Landspatientregistret%20(LPR3)%20-Kontaktoplysninger%20omkring%20de%20enkelte%20kontakter.html)
+
+-   pnr: ID: "Personnummer"
+-   dw_ek_kontakt    : Contact record number
+-   kont_starttidspunkt : Date of contact: "Kontaktens startdato"
+-   [kont_ans_hovedspec](https://www.dst.dk/da/Statistik/dokumentation/Times/moduldata-for-sociale-forhold--sundhedsvaesen--retsvaesen/spec): Specialty of department: "Stamafdelingens hovedspeciale"
+
+#### LPR_A_DIAGNOSE
+
+[DST's variable list](https://www.dst.dk/extranet/ForskningVariabellister/LPR_A_DIAGNOSE%20-%20Landspatientregistret%20(LPR3)%20-Diagnoseoplysning.html)
+To-DO
+
+-   dw_ek_kontakt    : Contact record number
+-   [diag_kode_type](https://www.esundhed.dk/Dokumentation/-/media/Files/Dokumentation/Landspatientregisteret/5_Kodeark_LPR---pdf.ashx): Diagnosis code type (main/hoved/A-diagnose vs secondary/bi/B-diagnose vs referral/henvisnings/H-diagnose)
+-   [diag_kode](https://www.dst.dk/da/Statistik/dokumentation/Times/forebyggelsesregistret/diag): Diagnosekode
+-   senere_afkraeftet: Was the diagnosis later retracted ("Ja" vs. "Nej")

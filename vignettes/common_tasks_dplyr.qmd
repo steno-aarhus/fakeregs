@@ -9,11 +9,11 @@ editor: visual
 
 This Quarto document uses synthetic register data to run a data processing pipeline and illustrate common tasks encountered when conducting register-based research.
 
-## Setup
+## Setup chunks
 
-The synthetic registers are generated during this R session, stored as Parquet files on disk in the `data-parquet` sub-folder using the `arrow` package, and then read in from there.
+The beginning of most sections of this walkthrough contains a code chunk that sets up each register by generating the synthetic register data and storing it as Parquet files on disk in the `data-parquet` sub-folder of the current directory. The data is read in from there in subsequent code chunks.
 
-If you're on your own in a project with only the raw SAS data, you would first need to convert your raw SAS files to a more practical format (the `fastregs` packages can help you), and then read your data in from there. Either in the raw structure as separate files for each year (e.g. `bef202412.csv` or `.rds`), or - much faster and more convenient - as a dataset of `Arrow Tables` stored as `.parquet` using the `arrow` package.
+In some real-world scenarios, you may be on your own in a project with only the raw SAS data. In this situation, you would first need to convert your raw SAS files to a more practical format like Parquet (the `fastregs` package can help you) and store them in a similar structure as is done in this guide (data from each register is stored inside separate folders). Then you can load your data from those Parquet files in the same way as shown below.
 
 ### Let's go
 
@@ -23,29 +23,39 @@ Through-out the examples, I use the `package::function` syntax to be explicit ab
 
 First, we need to generate the synthetic data to mimic the DST environment and run the examples on:
 
-```{r setup}
-knitr::opts_chunk$set(message = FALSE)
-# Load necessary packages:
-library(dplyr)
-library(purrr)
-library(tibble)
-library(lubridate)
-library(here)
-library(arrow)
-library(duckplyr)
-library(fs)
+```{r setup-dependencies}
+
+# Check if necessary packages are installed:
+packages_to_check <- c("dplyr", "purrr", "tibble", "lubridate", "here", "arrow", "duckplyr", "fs")
+
+data.frame(
+  Package = packages_to_check,
+  IsInstalled = packages_to_check %in% row.names(installed.packages())
+)
+
+
+
 
 # Source (run) the script containing the functions to generate synthetic data to import them:
 source(here::here("R", "generate_data.R"))
-
-# Create BEF directory/folder:
-fs::dir_create(here::here("data-parquet", "bef"))
-
-# Generate BEF and save to disk
-arrow::write_dataset(generate_bef(generate_background_pop()), here::here("data-parquet", "bef"), format = "parquet", partitioning = "year")
 ```
 
 ## BEF
+
+```{r setup-bef}
+# Setup synthetic data: Create BEF directory/folder:
+fs::dir_create(here::here("data-parquet", "bef"))
+
+# Generate BEF and save to disk
+arrow::write_dataset(
+  generate_bef(
+    background_df = generate_background_pop()
+    ),
+  here::here("data-parquet", "bef"),
+  format = "parquet",
+  partitioning = "year")
+
+```
 
 Tasks:
 
@@ -64,13 +74,18 @@ The key step here is to read the Arrow Tables from the Parquet files (`bef_folde
 
 Depending on the functions you need to execute, and the `arrow` and `duckplyr` package versions, you can sometimes get away with not using `dplyr::compute()` to load the data into DuckDB, but it's a good habit to exercise.
 
-```{r}
+```{r load-bef}
+
+# Load BEF data:
+
 bef_folder <- here::here("data-parquet", "bef")
-bef <- bef_folder |> arrow::open_dataset(unify_schemas = TRUE) |>
-  # Add cleaning steps in Arrow here
+bef_ddb <- bef_folder |> arrow::open_dataset(unify_schemas = TRUE) |>
+  # You can add cleaning steps in Arrow here before converting to DuckDB
   arrow::to_duckdb() |> dplyr::compute()
 
-bef |> dplyr::collect()
+bef_df <- bef_ddb |> dplyr::collect()
+
+bef_df
 ```
 
 ### 2: Filter
@@ -118,4 +133,96 @@ bef_clean <- bef_filtered |>
   )
 
 bef_clean |>  dplyr::collect()
+```
+
+## LPR
+
+### LPR2
+
+```{r setup-lpr2}
+
+# Create lpr_adm directory/folder:
+fs::dir_create(here::here("data-parquet", "lpr_adm"))
+
+# Generate lpr_adm and save to disk
+arrow::write_dataset(
+  generate_lpr_adm(
+    background_df = generate_background_pop()
+    ),
+  here::here("data-parquet", "lpr_adm"),
+  format = "parquet",
+  partitioning = "year")
+
+# Create lpr_diag directory/folder:
+fs::dir_create(here::here("data-parquet", "lpr_diag"))
+
+# Generate lpr_adm and save to disk (year-partitioning the synthetic data is not feasible here)
+arrow::write_dataset(
+  generate_lpr_diag(generate_lpr_adm(
+    background_df = generate_background_pop()
+  )),
+  here::here("data-parquet", "lpr_diag"),
+  format = "parquet"
+)
+```
+
+#### lpr_adm & lpr_diag
+
+Let's look at `lpr_adm`:
+
+```{r load-lpr-adm}
+# Load lpr_adm data:
+
+lpr_adm_folder <- here::here("data-parquet", "lpr_adm")
+lpr_adm_ddb <- lpr_adm_folder |> arrow::open_dataset(unify_schemas = TRUE) |>
+  # You can add cleaning steps in Arrow here before converting to DuckDB
+  arrow::to_duckdb() |> dplyr::compute()
+
+lpr_adm_df <- lpr_adm_ddb |> dplyr::collect()
+
+head(lpr_adm_df)
+```
+
+And `lpr_diag:`
+
+```{r load-lpr-diag}
+# Load lpr_diag data:
+lpr_diag_folder <- here::here("data-parquet", "lpr_diag")
+lpr_diag_ddb <- lpr_diag_folder |> arrow::open_dataset(unify_schemas = TRUE) |>
+  # You can add cleaning steps in Arrow here before converting to DuckDB
+  arrow::to_duckdb() |> dplyr::compute()
+
+lpr_diag_df <- lpr_diag_ddb |> dplyr::collect()
+
+head(lpr_diag_df)
+```
+
+### LPR3
+
+#### lpr_a_kontakt & lpr_a_diagnose
+
+```{r setup-lpr-a}
+
+# Create lpr_a_kontakt directory/folder:
+fs::dir_create(here::here("data-parquet", "lpr_a_kontakt"))
+
+# Generate lpr_a_kontakt and save to disk
+arrow::write_dataset(
+  generate_lpr_a_kontakt(
+    background_df = generate_background_pop()
+    ),
+  here::here("data-parquet", "lpr_a_kontakt"),
+  format = "parquet")
+
+# Create lpr_a_diagnose directory/folder:
+fs::dir_create(here::here("data-parquet", "lpr_a_diagnose"))
+
+# Generate lpr_a_diagnose and save to disk
+arrow::write_dataset(
+  generate_lpr_a_diagnose(generate_lpr_a_kontakt(
+    background_df = generate_background_pop()
+    )),
+  here::here("data-parquet", "lpr_a_diagnose"),
+  format = "parquet"
+)
 ```

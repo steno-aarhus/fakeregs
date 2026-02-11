@@ -15,10 +15,10 @@
 #'
 #' @returns A \code{tibble} containing the stable population pool with variables:
 #' \itemize{
-#'   \item \code{PNR}: Random 12-digit Personal ID string.
-#'   \item \code{OPR_LAND}: Origin country code (ensures at least one of every foreign code).
-#'   \item \code{KOEN}: Gender code.
-#'   \item \code{FOED_DAG}: Birth date.
+#'   \item \code{pnr}: Random 12-digit Personal ID string.
+#'   \item \code{opr_land}: Origin country code (ensures at least one of every foreign code).
+#'   \item \code{koen}: Gender code.
+#'   \item \code{foed_dag}: Birth date.
 #' }
 #'
 #' @importFrom checkmate assert_number
@@ -86,17 +86,17 @@ generate_background_pop <- function(years_to_generate = 2015:2024,
   # Generate Tibble
   tibble::tibble(
     # Stable ID
-    PNR = replicate(total_background_rows, paste0(sample(0:9, 12, replace = TRUE), collapse = "")),
+    pnr = replicate(total_background_rows, paste0(sample(0:9, 12, replace = TRUE), collapse = "")),
 
     # Stable Origin
-    OPR_LAND = opr_land_vector,
+    opr_land = opr_land_vector,
 
     # Stable Gender
-    KOEN = sample(c(1, 2), total_background_rows, replace = TRUE),
+    koen = sample(c(1, 2), total_background_rows, replace = TRUE),
 
 
     # Cap max birthday at start of sequence - 1 year to ensure valid ALDER in all generated years
-    FOED_DAG = sample(
+    foed_dag = sample(
       seq(as.Date("1950-01-01"), as.Date(paste0(min(years_to_generate) - 1, "-12-31")), by = "day"),
       total_background_rows,
       replace = TRUE
@@ -161,23 +161,23 @@ generate_bef <- function(background_df,
       dplyr::slice_sample(n = n_samples, replace = FALSE) |>
       # Add time-varying Variables (Generated at random each year)
       dplyr::mutate(
-        REG = sample(
+        reg = sample(
           c(81, 82, 83, 84, 85),
           dplyr::n(),
           replace = TRUE,
           prob = c(0.1, 0.22, 0.21, 0.32, 0.15)
         ),
-        CIVST = sample(civst_codes, dplyr::n(), replace = TRUE),
+        civst = sample(civst_codes, dplyr::n(), replace = TRUE),
         year = year_char,
 
         # Calculate ALDER relative to the current year
-        ALDER = floor(lubridate::time_length(
-          lubridate::interval(FOED_DAG, as.Date(paste0(year_char, "-12-31"))),
+        alder = floor(lubridate::time_length(
+          lubridate::interval(foed_dag, as.Date(paste0(year_char, "-12-31"))),
           unit = "years"
         ))
       ) |>
       # Reorder columns
-      dplyr::select(PNR, KOEN, FOED_DAG, ALDER, REG, CIVST, OPR_LAND, year)
+      dplyr::select(pnr, koen, foed_dag, alder, reg, civst, opr_land, year)
   }
 
   # EXECUTE MAP & RETURN
@@ -202,10 +202,10 @@ generate_bef <- function(background_df,
 #'
 #' @returns A \code{tibble} with columns:
 #' \itemize{
-#'   \item \code{PNR}: Person ID (sampled from background population).
-#'   \item \code{RECNUM}: Unique 16-digit admission identifier.
-#'   \item \code{D_INDDTO}: Date of admission.
-#'   \item \code{C_SPEC}: 2-digit specialty code (00-99).
+#'   \item \code{pnr}: Person ID (sampled from background population).
+#'   \item \code{recnum}: Unique 16-digit admission identifier.
+#'   \item \code{d_inddto}: Date of admission.
+#'   \item \code{c_spec}: 2-digit specialty code (00-99).
 #'   \item \code{year}: Reference year.
 #' }
 #' @export
@@ -225,24 +225,24 @@ generate_lpr_adm <- function(background_df,
     # We grab n_samples_per_year PNRs from the background pool
     pnr_pool <- background_df |>
       dplyr::slice_sample(n = n_samples_per_year, replace = TRUE) |>
-      dplyr::pull(PNR)
+      dplyr::pull(pnr)
 
     # 3. Generate Data
     dplyr::tibble(
-      PNR = pnr_pool,
+      pnr = pnr_pool,
 
       # RECNUM: Unique 16-digit string for every admission (first eight-digit sequence is unique,
       # also vs lpr_a_kontakt - which some report may overlap in real data)
-      RECNUM = paste0(
-        sprintf("%06d", sample(0:49999999, n_samples_per_year, replace = FALSE)),
+      recnum = paste0(
+        sprintf("%08d", sample(0:49999999, n_samples_per_year, replace = FALSE)),
         replicate(n_samples_per_year, paste0(sample(0:9, 8, replace = TRUE), collapse = ""))
       ),
 
       # D_INDDTO: Random date within the year
-      D_INDDTO = sample(days_in_year, n_samples_per_year, replace = TRUE),
+      d_inddto = sample(days_in_year, n_samples_per_year, replace = TRUE),
 
       # C_SPEC: Random 2-digit specialty code (00 to 99)
-      C_SPEC = sprintf("%02d", sample(0:99, n_samples_per_year, replace = TRUE)),
+      c_spec = sprintf("%02d", sample(0:99, n_samples_per_year, replace = TRUE)),
       year = year_char
     )
   }
@@ -272,7 +272,7 @@ generate_lpr_adm <- function(background_df,
 #'
 #' @returns A \code{tibble} with columns:
 #' \itemize{
-#'   \item \code{PNR}: Person ID.
+#'   \item \code{pnr}: Person ID.
 #'   \item \code{dw_ek_kontakt}: Unique 16-digit contact identifier.
 #'   \item \code{kont_starttidspunkt}: Datetime (POSIXct) of the contact start.
 #'   \item \code{kont_ans_hovedspec}: Medical specialty name.
@@ -321,14 +321,14 @@ generate_lpr_a_kontakt <- function(background_df,
   # 4. Generate Data
   dplyr::tibble(
     # Sample PNRs from the background pool (with replacement)
-    PNR = background_df |>
+    pnr = background_df |>
       dplyr::slice_sample(n = total_n, replace = TRUE) |>
-      dplyr::pull(PNR),
+      dplyr::pull(pnr),
 
     # dw_ek_kontakt: Unique 16-digit string (first eight-digit sequence is unique,
     # also vs lpr_a_kontakt - which some report may overlap in real data)
     dw_ek_kontakt = paste0(
-      sprintf("%06d", sample(50000000:99999999, total_n, replace = FALSE)),
+      sprintf("%08d", sample(50000000:99999999, total_n, replace = FALSE)),
       replicate(total_n, paste0(sample(0:9, 8, replace = TRUE), collapse = ""))
     ),
 
@@ -339,4 +339,150 @@ generate_lpr_a_kontakt <- function(background_df,
     # kont_ans_hovedspec: Random specialty
     kont_ans_hovedspec = sample(specialties_list, total_n, replace = TRUE)
   ) |> dplyr::arrange(.data$kont_starttidspunkt)
+}
+
+#' Generate synthetic ICD-10 diagnoses for a vector of contact keys
+#'
+#' @description
+#' Helper function that expands a list of recnum/dw_ek_kontakt keys
+#' into a long-format table of diagnoses. It assigns 1-4 diagnoses per key,
+#' determines the type (Hoved/Bi/Henvisning), and generates random ICD-10 codes.
+#'
+#' @param id_vector A vector of unique identifiers (e.g., RECNUM or dw_ek_kontakt).
+#' @param id_col_name String. The name to assign to the ID column in the output tibble.
+#' @param type_col_name String. The name for the diagnosis type column.
+#' @param code_col_name String. The name for the diagnosis code column.
+#'
+#' @returns A \code{tibble} with the expanded IDs, diagnosis types, and diagnosis codes.
+generate_icd_10_diagnoses <- function(record_vector,
+                                      output_record_col_name = "please_provide_output_record_col_name",
+                                      diag_type_col_name = "diag_type",
+                                      diag_code_col_name = "diag_code") {
+  n_ids <- length(record_vector)
+  if (n_ids == 0) {
+    return(dplyr::tibble())
+  }
+
+  # 1. Sample how many diagnoses each ID gets (1 to 4)
+  # Distribution: 25% = 1 diag, 50% = 2, 23% = 3, 2% = 4
+  n_diags_per_id <- sample(1:4, n_ids, replace = TRUE, prob = c(0.25, 0.50, 0.23, 0.02))
+
+  # 2. Expand the IDs to create the base table
+  expanded_ids <- rep(record_vector, n_diags_per_id)
+  n_rows <- length(expanded_ids)
+
+  # 3. Assign Diagnosis Types (A, B, H)
+  seq_ids <- sequence(n_diags_per_id)
+
+  # Default to 'B' (Secondary)
+  types <- rep("B", n_rows)
+
+  # First diagnosis is always 'A' (Main)
+  types[seq_ids == 1] <- "A"
+
+  # Randomly turn 5% of 'B's into 'H's (Referral)
+  is_b <- types == "B"
+  if (any(is_b)) {
+    h_indices <- sample(which(is_b), size = sum(is_b) * 0.05)
+    types[h_indices] <- "H"
+  }
+
+  # 4. Generate ICD-10 Codes
+  # Structure: "D" + [A-Z] + [0-9][0-9] + optional [0-9]
+  letters <- sample(LETTERS, n_rows, replace = TRUE)
+  digits2 <- sprintf("%02d", sample(0:99, n_rows, replace = TRUE))
+  digit3 <- sample(0:9, n_rows, replace = TRUE)
+  has_3rd <- sample(c(TRUE, FALSE), n_rows, replace = TRUE)
+
+  codes <- paste0("D", letters, digits2)
+  codes[has_3rd] <- paste0(codes[has_3rd], digit3[has_3rd])
+
+  # 5. Return Tibble with dynamic names
+  # We construct the tibble using setNames to apply the custom column names
+  dplyr::tibble(
+    !!rlang::sym(output_record_col_name) := expanded_ids,
+    !!rlang::sym(diag_type_col_name) := types,
+    !!rlang::sym(diag_code_col_name) := codes
+  )
+}
+
+
+
+
+#' Generate synthetic LPR2 diagnosis data (lpr_diag)
+#'
+#' @description
+#' Generates a synthetic diagnosis table linked to an existing lpr_adm table.
+#' Uses \code{generate_icd_10_diagnoses} for core logic.
+#' It creates a 1-to-many relationship where each admission (recnum) can have
+#' one or more diagnoses.
+#'
+#' @param lpr_adm_data A tibble. The output from \code{generate_lpr_adm}.
+#'   Must contain a 'recnum' column (lower-cased).
+#'
+#' @returns A \code{tibble} with columns:
+#' \itemize{
+#'   \item \code{recnum}: Link to the administrative table (lowercase).
+#'   \item \code{c_diagtype}: 'A' (Main), 'B' (Secondary), or 'H' (Referral).
+#'   \item \code{c_diag}: ICD-10 code (e.g., 'DI20', 'DA123').
+#' }
+#' @export
+generate_lpr_diag <- function(lpr_adm_data) {
+  # Validate input
+  if (!"recnum" %in% names(lpr_adm_data)) {
+    stop("Input dataframe must contain a 'recnum' (lowercase) column.")
+  }
+
+  # Call helper with specific column names for the old LPR format
+  generate_icd_10_diagnoses(
+    record_vector = lpr_adm_data$recnum,
+    output_record_col_name = "recnum",
+    diag_type_col_name = "c_diagtype",
+    diag_code_col_name = "c_diag"
+  )
+}
+
+
+#' Generate synthetic LPR A diagnosis data (lpr_a_diagnose)
+#'
+#' @description
+#' Generates a synthetic diagnosis table linked to an existing lpr_a_kontakt (`lpr_a_kontakt`) table.
+#' Uses \code{generate_icd_10_diagnoses} for core logic and adds the
+#' 'senere_afkraeftet' variable.
+#' . It creates a 1-to-many relationship where each contact
+#' (`dw_ek_kontakt`) can have one or more diagnoses.
+#'
+#' @param lpr_kontakt_data A tibble. The output from \code{generate_lpr_a_kontakt}.
+#'   Must contain a 'dw_ek_kontakt' column.
+#'
+#' @returns A \code{tibble} with columns:
+#' \itemize{
+#'   \item \code{dw_ek_kontakt}: Link to the contact table.
+#'   \item \code{diag_kode_type}: 'A' (Aktionsdiagnose), 'B' (Bidiagnose), or 'H' (Henvisningsdiagnose).
+#'   \item \code{diag_kode}: ICD-10 code (e.g., 'DI20', 'DA123').
+#'   \item \code{senere_afkraeftet}: 'Nej' (99%) or 'Ja' (1%).
+#' }
+#'
+#' @param lpr_kontakt_data A tibble. The output from \code{generate_lpr_a_kontakt}.
+#'
+#' @export
+generate_lpr_a_diagnose <- function(lpr_kontakt_data) {
+  if (!"dw_ek_kontakt" %in% names(lpr_kontakt_data)) {
+    stop("Input dataframe must contain a 'dw_ek_kontakt' (lower-case) column.")
+  }
+
+  # 1. Generate base diagnoses using the helper
+  base_df <- generate_icd_10_diagnoses(
+    record_vector = lpr_kontakt_data$dw_ek_kontakt,
+    output_record_col_name = "dw_ek_kontakt",
+    diag_type_col_name = "diag_kode_type",
+    diag_code_col_name = "diag_kode"
+  )
+
+  # 2. Add the LPR3-specific variable 'senere_afkraeftet'
+  # "Nej" for 99%, "Ja" for 1%
+  retracted_status <- sample(c("Nej", "Ja"), nrow(base_df), replace = TRUE, prob = c(0.99, 0.01))
+
+  base_df |>
+    dplyr::mutate(senere_afkraeftet = retracted_status)
 }

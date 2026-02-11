@@ -44,8 +44,8 @@ What is currently covered and planned
 - [ ] lmdb
 - [ ] sysi/sssy
 - [ ] lab
-- [ ] lpr2 (lpr_adm, lpr_diag)
-- [ ] lp3 (lpr_a_kontakt, lpr_a_diagnose)
+- [x] lpr2 (lpr_adm, lpr_diag)
+- [x] lp3 (lpr_a_kontakt, lpr_a_diagnose)
 
 ### Data management operations in walkthrough
 
