@@ -1,84 +1,574 @@
 ---
-title: "Data processing examples using data.table"
+title: "Data processing template using data.table"
 author: "Anders Aasted Isaksen"
 format: html
 editor: visual
 ---
 
-# Introduction
-
-This Quarto document uses synthetic register data to run a data processing pipeline and illustrate the most common challenges and tasks encountered when conducting register-based research.
-
-## Setup
-
-The synthetic dataset is pre-loaded into this R session as a list of tibbles and each register is loaded from there.
-
-If you're on your own in a project with only the raw data, you would first need to convert your raw SAS files to a more practical format (the `fastregs` packages can help you), and then read your data in from there. Either in the raw structure as separate files for each year (e.g. `bef202412.csv` or `.rds`), or as a dataset of `Arrow Tables` stored as `.parquet` using the `arrow` package:
-
-EXAMPLE
-
-or from a DuckDB database using `duckplyr` and/or `dbplyr`
-
-EXAMPLE
-
-A note on data processing back-ends:
-The "engine" that runs your processing can either be
-
-- R
-- DuckDB
-- Arrow
-
-With R being the slowest and most vulnerable to instability when forced to process register-scale data sizes.  DuckDB being the fastest
-
-With the latest version of `duckplyr`, you can conduct practically all of your data processing from R using the same dplyr commands as you would in regular R. Arrow supports fewer operations than DuckDB/`duckplyr`, and  
-
-```{r setup}
-
-load(here::here("synthetic_dst.RData"))
-
-```
-
-## BEF
-
-Tasks:
-
-1.  Load in bef.
-    1.  Normally, this will be from disk: either single-year files or a combined dataset containing data of all years.
-    2.  Here we load from the synthetic dataset, which mimics the latter.
-2.  Filter to relevant years and/or individuals needed for the planned analysis.
-    1.  This is a good way to reduce the size of the data you're working with, which will speed processing times up and make your sessions more stable.
-    2.  Depending on the analysis, you can limit your dataset to the range of years and/or age used in your analyses.
-    3.  The list of pnr-numbers that you identify in this step can be used to filter all the other data sources. If your analyses are restricted to a population of individuals with a certain disease, e.g. diabetes or cardiovascular disease, it may be useful to define these variables earlier, and combine them with bef to allow you to filter the data to this study population from the start.
-3.  Convert raw codes to usable values.
 
 
-### 1: Load
+# This will be converted into a dplyr + arrow + duckdb workflow
 
 ```{r}
+# Original script is located at
 
-# Normally, you would load this in with dstDataPrep::load_database("bef") or other alternatives
-bef <- synthetic_dst$bef
+# Project root:
+here::here()
+# "E:/ProjektDB/ALMAU/Workdata/707517/Workspaces/diabetespopulation"
 
-```
+# Script path:
+here::here("R", "analyses", "other_projects", "lasse", "cvd_t2d_cardioprot_pop.R")
+# "E:/ProjektDB/ALMAU/Workdata/707517/Workspaces/diabetespopulation/R/analyses/other_projects/lasse/cvd_t2d_cardioprot_pop.R"
 
+# Create population of individuals from 2012 through 2018 without prevalent dual T2D/CVD --------
+source(here::here("R/packages.R"))
 
-### 2: Filter
-
-In this example, we only want adults alive and residing in Denmark between 2020 and 2024
-
-```{r}
-bef_filtered <-
-  bef |> filter(year %in% 2020:2024 & ALDER >= 18) |>
-  select(PNR, year, FOED_DAG, KOEN, CIVST, REG, OPR_LAND)
-
-# Keep the list of pnr's for later filtering:
-filtered_pnrs <- bef_filtered$PNR
-```
+library(dstDataPrep)
 
 
-### 3: Convert
+# Study population is defined by onset of T2D and CVD, who where alive in 2012-2018:
 
-```{r}
+# Steps to define population:
+
+# Restrict data to individuals who:
+
+## Were also alive and resident in Denmark at some point from 2012 through 2018 (background population)
+#### 5,124,233 individuals
+## Had onset of dual diagnosis (both T2D and CVD)
+#### 136,670 individuals (4,987,563 excluded)
+## Had onset of dual diagnosis between 2012 througn 2018
+#### 71,150 individuals (65,520 excluded)
+
+
+# Add exit dates and outcome dates (cardioprotective drug use, emigrations and deaths)
+## + other medications for supplementary analyses: any GLD, lipid-lowering drugs, antihypertensive drugs
+
+# Add sociodemographic covariates based on index date
+## Depending on whether model includes education or not,
+## the final study population size after excluding missing data:
+
+### 70,922 individuals (228 excluded due to missing data on covariates, if education is not included)
+### 18,450 exits and 9,077 outcomes in this population 2012-2018
+
+#### Including education leads to 2,641 additional individuals having missing data.
+#### A substantial proportion of the study population does not have biomarker data sampled near the index date.
+
+
+# Load population with on onset of CVD and T2D (residing in Denmark end-of-year 2011-2022 ----------------------------------
+
+bef_db <- load_register("bef")
+
+pnr_list <- bef_db |> filter(year %in% 2011:2022) |> select(PNR) |> distinct(PNR)
+
+pnr_list <- collect(pnr_list)
+pnr_list <- pnr_list$PNR
+
+
+### Size of background population:
+length(pnr_list) # 6,925,505
+
+
+
+# CVD complications -------------------------------------------------------
+
+
+# Load LPR2/ICD-10 codes for cardiovascular complication status through time:
+
+# Primary/Secondary diagnoses from lpr_diag:
+
+# Load LPR2: lpr_diag:
+
+lpr_2_diag <- load_register("lpr_diag")
+
+# Filter to ICD-10 codes only:
+
+
+
+
+
+lpr_2_diag_filtered <- lpr_2_diag %>%
+  filter(
+    C_DIAGTYPE %in% c('A', 'B') &
+      REGEXP_MATCHES(
+        C_DIAG,
+        '^DI2[0-5]|^DI6[0-4]|^DI74|^DI702|^DI739A|^DI50|^DI110|^DI13[02]'
+      )
+  ) %>% select(RECNUM,
+               C_DIAG,
+               C_DIAGTYPE)
+
+# Merge LPR2 diag to adm
+
+lpr_2_adm <- load_register("lpr_adm")
+lpr_2_adm_filtered <- lpr_2_adm %>% select(PNR,
+                                           D_INDDTO,
+                                           RECNUM)
+
+lpr2_icd10_filtered <- lpr_2_diag_filtered |> left_join(lpr_2_adm_filtered) |> select(PNR, D_INDDTO, C_DIAG, C_DIAGTYPE)
+
+
+# Merge LPR3 diag (diagnoser) to adm (kontakter)
+
+# Load diag
+lpr_3_diag <- load_misc_db("diagnoser")
+
+lpr_3_diag_filtered <- lpr_3_diag |>
+  mutate(RECNUM = DW_EK_KONTAKT,
+         C_DIAG = diagnosekode,
+         C_DIAGTYPE = diagnosetype) |>
+  filter(
+    REGEXP_MATCHES(
+      C_DIAG,
+      '^DI2[0-5]|^DI6[0-4]|^DI74|^DI702|^DI739A|^DI50|^DI110|^DI13[02]')
+    ) |>  select(RECNUM,
+               C_DIAG,
+               C_DIAGTYPE)
+
+# Load adm:
+lpr_3_adm <- load_misc_db("kontakter")
+lpr_3_adm_filtered <- lpr_3_adm  %>% select(PNR = CPR,
+                                            D_INDDTO = dato_start,
+                                            RECNUM = DW_EK_KONTAKT)
+
+# Merge diag to adm:
+
+lpr3_icd10_filtered <-
+  lpr_3_diag_filtered |> left_join(lpr_3_adm_filtered) |> select(PNR, D_INDDTO, C_DIAG, C_DIAGTYPE)
+
+
+
+# Combine LPR2 and LPR3:
+
+icd10_cvd <- rbind(collect(lpr3_icd10_filtered), collect(lpr2_icd10_filtered))
+
+setDT(icd10_cvd)
+setkey(icd10_cvd, PNR, D_INDDTO)
+
+saveRDS(icd10_cvd, here("data/source/lpr_complications_ab_gldpaper.rds"))
+
+
+# Complications from procedure codes:
+
+# LPR2:
+
+lpr_2_opr <- load_register("lpr_sksopr")
+
+lpr_2_cvd_procedures <-
+  lpr_2_opr |> filter(
+    REGEXP_MATCHES(
+      C_OPR,
+      '^KFN[A-G]|^KFNH20|^KAAL1[01]|^KPA[EF]|^KPAU74|^KPB[EF]|^KPC[EF]|^KPCU74|^KPD[EFH]|^KPE[EFH]|^KPEU74|^KPF[EFH]|^KPFU74|^KPGH|^KPGU74'
+    )
+  ) |>  select(RECNUM, C_OPR, D_ODTO)
+
+# Merge LPR2 diag to adm
+
+lpr_2_adm <- load_register("lpr_adm")
+lpr_2_adm_filtered <- lpr_2_adm %>% select(PNR,
+                                           RECNUM)
+
+lpr2_cvdprocs_filtered <- lpr_2_cvd_procedures |> left_join(lpr_2_adm_filtered) |> select(PNR, C_OPR, D_ODTO)
+
+
+# LPR3:
+lpr_3_opr <- load_misc_db("procedurer_kirurgi")
+
+lpr_3_cvd_procedures <-
+  lpr_3_opr |> filter(
+    REGEXP_MATCHES(
+      procedurekode,
+      '^KFN[A-G]|^KFNH20|^KAAL1[01]|^KPA[EF]|^KPAU74|^KPB[EF]|^KPC[EF]|^KPCU74|^KPD[EFH]|^KPE[EFH]|^KPEU74|^KPF[EFH]|^KPFU74|^KPGH|^KPGU74'
+    )
+  ) |>  select(RECNUM = DW_EK_KONTAKT, C_OPR = procedurekode, D_ODTO = dato_start)
+
+lpr_3_adm <- load_misc_db("kontakter")
+lpr_3_adm_filtered <- lpr_3_adm  %>% select(PNR = CPR,
+                                            RECNUM = DW_EK_KONTAKT)
+
+lpr3_cvdprocs_filtered <-
+  lpr_3_cvd_procedures |> left_join(lpr_3_adm_filtered) |> select(PNR, C_OPR, D_ODTO)
+
+
+# Combine LPR2 and LPR3:
+
+procedurecodes_cvd <- rbind(collect(lpr3_cvdprocs_filtered), collect(lpr2_cvdprocs_filtered))
+
+setDT(procedurecodes_cvd)
+setkey(procedurecodes_cvd, PNR, D_ODTO)
+
+
+# Filter to the population years and merge complications to single dataframe with type:
+
+icd10_cvd <- readRDS(here("data/source/lpr_complications_ab_gldpaper.rds"))
+
+
+
+ihs_diags <- "^DI2[0-5]"
+cerebrvasc_diags <- "^DI6[0-4]"
+pad_diags <- "^DI74|^DI702|^DI739A"
+hf_diags <- "^DI50|^DI110|^DI13[02]"
+
+ihs_procs <- "^KFN[A-G]|^KFNH20"
+cerebrvasc_procs <- "^KAAL1[01]"
+pad_procs <- "^KPA[EF]|^KPAU74|^KPB[EF]|^KPC[EF]|^KPCU74|^KPD[EFH]|^KPE[EFH]|^KPEU74|^KPF[EFH]|^KPFU74|^KPGH|^KPGU74"
+
+
+comp_dt <-
+  rbind(icd10_cvd[PNR %in% pnr_list, .(PNR, do_comp = D_INDDTO,
+                             source = "Diagnosis",
+                             comp_type = dplyr::case_when(
+                               grepl(ihs_diags, C_DIAG) ~ "ischemic_heart_disease",
+                               grepl(cerebrvasc_diags, C_DIAG) ~ "cerebrovascular_disease",
+                               grepl(pad_diags, C_DIAG) ~ "peripheral_arterial_disease",
+                               grepl(hf_diags, C_DIAG) ~ "heart_failure"
+                             ))],
+        procedurecodes_cvd[PNR %in% pnr_list, .(PNR, do_comp = D_ODTO,
+                              source = "Procedure",
+                              comp_type = dplyr::case_when(
+                                grepl(ihs_procs, C_OPR) ~ "ischemic_heart_disease",
+                                grepl(cerebrvasc_procs, C_OPR) ~ "cerebrovascular_disease",
+                                grepl(pad_procs, C_OPR) ~ "peripheral_arterial_disease"
+                              ))])
+
+setkey(comp_dt, PNR, do_comp)
+
+first_comp <- comp_dt[, .SD[1], by = PNR][, .(PNR, do_comp, comp_type)]
+
+all_comp_onsets <- dcast(comp_dt[, .SD[1], by = .(PNR, comp_type)], PNR ~ comp_type, value.var = "do_comp", mean, fill = NA)
+
+comps <- merge(first_comp,
+               all_comp_onsets,
+               by = "PNR",
+               all = T)
+
+rm(list = ls()[grep("^comps$|^pnr_list$", ls(), invert = T)])
+# T2D population ----------------------------------------------------------
+
+# Import the entire diabetes population through time
+# (diabetes-type not reclassified based on insulin use prior to index date):
+dm_population <- readRDS(here('data/output/dm_population.rds'))
+
+study_pop_raw <- merge(comps,
+                   dm_population[PNR %in% pnr_list & diabetes_type == 2, .(PNR, do_dm, diabetes_type)],
+                   all.x = T,
+                   by = "PNR")
+
+saveRDS(study_pop_raw, here("data/source/lasse_pop_study_pop_raw.rds"))
+
+study_pop_raw[, do_dual_diagnosis := as.Date(apply(study_pop_raw[, c("do_dm", "do_comp")],
+                                                   1, function(x)
+                                                     (sort(x))[2]))]
+
+# Size of population with a dual diagnosis regardless of time of onset:
+nrow(study_pop_raw[!is.na(do_dual_diagnosis)]) # 189,401 (prev. study: 136,670)
+
+
+study_pop <- study_pop_raw[do_dual_diagnosis >= as.Date("2012-01-01") & do_dual_diagnosis < as.Date("2023-01-01")]
+
+
+
+# Size of study population with a dual diagnosis onset 2012 onward:
+nrow(study_pop) # 120,350 (prev. 71,150)
+
+
+# Emigrations and deaths --------------------------------------
+
+migrations <- load_register("vnds")
+
+migrations <- collect(migrations)
+
+
+setDT(migrations)
+
+migrations <- migrations[year == 2022]
+setkey(migrations, PNR, INDUD_KODE, HAEND_DATO)
+
+# Assuming bef table for Jan 1 2012 is correct, restrict to emigrations after this date:
+
+emigs <- migrations[PNR %in% study_pop$PNR & HAEND_DATO >= as.Date("2012-01-01") & INDUD_KODE == "U"]
+
+# Only emigrations after inclusion date is used for exclusion
+emigs <- merge(emigs, study_pop[, .(PNR, do_dual_diagnosis)], by = "PNR", all.x = TRUE)
+emigs <- emigs[HAEND_DATO >= do_dual_diagnosis]
+
+# Define exit date at first date of emigration in this period, regardless of later immigration:
+## Only 82 individuals have multiple emigrations in the study period
+## 873 emigrating individuals in the study period:
+nrow(emigs[, .N, PNR][N>1]) # 31
+nrow(emigs[, .N, PNR]) # 519
+emig_dates <- emigs[, .SD[1], by = PNR][, .(PNR, do_emig = HAEND_DATO)]
+
+
+# Import date of death
+
+deaths <- arrow::to_duckdb(arrow::open_dataset("E:/workdata/708421/cleaned-data/parquet-registers/dod", unify_schemas = TRUE))
+
+deaths <- collect(deaths |> filter(year == 2022))
+setDT(deaths)
+
+# Only one date of death per person:
+nrow(deaths[, .N, PNR][N>1]) # 0
+
+death_dates <- deaths[PNR %in% study_pop$PNR, .(PNR, do_dth = DODDATO)]
+
+
+# Medication dates --------------------------------------------------------
+
+# Import CP-GLD & other medication use:
+
+atc_sglt2 <- "^A10BK|^A10BD[15:24]|^A10BX09|^A10BX1[12]"
+atc_glp1a <- "^A10BJ|^A10AE5|^A10BX0[47]|^A10BX1[034]"
+atc_antilipid <- "^C10"
+atc_antihypertens <- "^C03|^C02CA|^G04CA|^C07|^C08|^C09"
+atc_antithromb <- c("^B01AC|^B01AA|^B01AE07|^B01AF")
+
+
+# A10
+lmdb <- load_register("lmdb")
+
+a10_filtered <-
+  lmdb |> filter(year >= 2011 &
+                   atc2 == 'A10') |>  select(PNR, ATC, EKSD = eksd)
+
+a10_filtered <- collect(a10_filtered)
+setDT(a10_filtered, key = c("PNR", "EKSD", "ATC"))
+
+
+# Antilipids
+c10_filtered <-
+  lmdb |> filter(year >= 2011 &
+                   atc2 == 'C10') |>  select(PNR, ATC, EKSD = eksd, Volume, PACKSIZE)
+
+
+c10_filtered <- collect(c10_filtered)
+c10_filtered <- c10_filtered |> mutate(ddd = dplyr::case_when(ATC == "C10AA05" ~ 20,
+                         ATC == "C10AA07" ~ 10,
+                         ATC == "C10AA01" ~ 30),
+                       name = dplyr::case_when(ATC == "C10AA05" ~ "Atorvastatin",
+                                               ATC == "C10AA07" ~ "Rosuvastatin",
+                                               ATC == "C10AA01" ~ "Simvastatin"),
+                       strength = round_tidy(Volume * ddd / PACKSIZE, digits = 0),
+                       high_intensity_statin = dplyr::case_when(is.na(name) ~ FALSE,
+                                                                name == "Atorvastatin" & strength >= 40 ~ TRUE,
+                                                                name == "Rosuvastatin" & strength >= 20 ~ TRUE,
+                                                                name == "Simvastatin" & strength >= 80 ~ TRUE,
+                                                                .default = FALSE))
+
+setDT(c10_filtered, key = c("PNR", "EKSD", "ATC"))
+
+
+# AHT
+aht_filtered <-
+  lmdb |> filter(year >= 2011) |> filter(REGEXP_MATCHES(atc2, 'C03|C07|C08|C09')) |>  select(PNR, ATC, EKSD = eksd)
+
+aht_filtered <- collect(aht_filtered)
+setDT(aht_filtered, key = c("PNR", "EKSD", "ATC"))
+
+# Anti-thrombotics
+at_filtered <-
+  lmdb |> filter(year >= 2011 &
+                   REGEXP_MATCHES(
+                     ATC, c("^B01AC|^B01AA|^B01AE07|^B01AF"))) |>  select(PNR, ATC, EKSD = eksd)
+
+at_filtered <- collect(at_filtered)
+setDT(at_filtered, key = c("PNR", "EKSD", "ATC"))
+
+saveRDS(a10_filtered, here("data/source/lasse_meds_filtered.rds"))
+
+# Define dates:
+
+# Any GLD use:
+a10 <- a10_filtered[PNR %in% study_pop$PNR]
+
+#SGLT2
+dates_sglt2 <- a10_filtered[grepl(paste0(atc_sglt2), ATC),
+                   .(PNR, do_sglt2 = EKSD)]
+
+# GLP1A
+dates_glp1a <- a10_filtered[grepl(paste0(atc_glp1a), ATC),
+                   .(PNR, do_glp1a = EKSD)]
+# Incl. Xultophy/Suliqua (GLP1A/insulin comb.)
+
+# # ANTILIPIDS
+dates_antilipid <- c10_filtered[grepl(paste0(atc_antilipid), ATC),
+                             .(PNR, do_antilipid = EKSD)]
+dates_high_intensity_statin <- c10_filtered[high_intensity_statin == TRUE,
+                                .(PNR, do_high_intensity_statin = EKSD)]
+# # ANTIHYPERTENSIVES
+dates_antihypertens <- aht_filtered[grepl(paste0(atc_antihypertens), ATC),
+                                 .(PNR, do_antihypertens = EKSD)]
+
+# # ANTITHROMBOTICS
+dates_antithromb <- at_filtered[grepl(paste0(atc_antithromb), ATC),
+                                     .(PNR, do_antithromb = EKSD)]
+
+dates_antithromb_artery <- at_filtered[grepl("^B01AC", ATC),
+                                            .(PNR, do_antithromb_artery = EKSD)]
+
+dates_antithromb_venous <- at_filtered[grepl("^B01AA|^B01AE07|^B01AF", ATC),
+                                         .(PNR, do_antithromb_venous = EKSD)]
+
+
+
+# Prevalent medication use ------------------------------------------------
+
+
+# Create cartesian dataframes of dates of CP-GLD/other drugs vs. index date,
+# then create variable for individuals with purchases during 365 days prior to index date,
+# and select subset of purchases made on or after index date for outcome analyses:
+
+# Joins:
+sglt2_index <- merge(
+  study_pop[, .(PNR, do_dual_diagnosis)],
+  dates_sglt2,
+  by = "PNR",
+  all.x = T,
+  allow.cartesian = T
+)
+
+glp1a_index <- merge(
+  study_pop[, .(PNR, do_dual_diagnosis)],
+  dates_glp1a,
+  by = "PNR",
+  all.x = T,
+  allow.cartesian = T
+)
+
+anygld_index <- merge(
+  study_pop[, .(PNR, do_dual_diagnosis)],
+  a10[, .(PNR, do_anygld = EKSD)],
+  by = "PNR",
+  all.x = T,
+  allow.cartesian = T
+)
+
+antilipid_index <- merge(
+  study_pop[, .(PNR, do_dual_diagnosis)],
+  dates_antilipid,
+  by = "PNR",
+  all.x = T,
+  allow.cartesian = T
+)
+
+high_intensity_statin_index <- merge(
+  study_pop[, .(PNR, do_dual_diagnosis)],
+  dates_high_intensity_statin,
+  by = "PNR",
+  all.x = T,
+  allow.cartesian = T
+)
+
+antihypertens_index <- merge(
+  study_pop[, .(PNR, do_dual_diagnosis)],
+  dates_antihypertens,
+  by = "PNR",
+  all.x = T,
+  allow.cartesian = T
+)
+
+antithromb_index <- merge(
+  study_pop[, .(PNR, do_dual_diagnosis)],
+  dates_antithromb,
+  by = "PNR",
+  all.x = T,
+  allow.cartesian = T
+)
+
+antithromb_artery_index <- merge(
+  study_pop[, .(PNR, do_dual_diagnosis)],
+  dates_antithromb_artery,
+  by = "PNR",
+  all.x = T,
+  allow.cartesian = T
+)
+
+antithromb_venous_index <- merge(
+  study_pop[, .(PNR, do_dual_diagnosis)],
+  dates_antithromb_venous,
+  by = "PNR",
+  all.x = T,
+  allow.cartesian = T
+)
+
+
+# Variable of prevalent medication use:
+sglt2_index[, sglt2_prior_index := do_sglt2 >= do_dual_diagnosis - 365 &
+              do_sglt2 < do_dual_diagnosis]
+
+glp1a_index[, glp1a_prior_index := do_glp1a >= do_dual_diagnosis - 365 &
+              do_glp1a < do_dual_diagnosis]
+
+anygld_index[, anygld_prior_index := do_anygld >= do_dual_diagnosis - 365 &
+               do_anygld < do_dual_diagnosis]
+
+antilipid_index[, antilipid_prior_index := do_antilipid >= do_dual_diagnosis - 365 &
+                  do_antilipid < do_dual_diagnosis]
+
+high_intensity_statin_index[, high_intensity_statin_prior_index := do_high_intensity_statin >= do_dual_diagnosis - 365 &
+                  do_high_intensity_statin < do_dual_diagnosis]
+
+antihypertens_index[, antihypertens_prior_index := do_antihypertens >= do_dual_diagnosis - 365 &
+                      do_antihypertens < do_dual_diagnosis]
+
+antithromb_index[, antithromb_prior_index := do_antithromb >= do_dual_diagnosis - 365 &
+                   do_antithromb < do_dual_diagnosis]
+
+antithromb_artery_index[, antithromb_artery_prior_index := do_antithromb_artery >= do_dual_diagnosis - 365 &
+                          do_antithromb_artery < do_dual_diagnosis]
+
+antithromb_venous_index[, antithromb_venous_prior_index := do_antithromb_venous >= do_dual_diagnosis - 365 &
+                          do_antithromb_venous < do_dual_diagnosis]
+
+
+# Add variables to study pop dataset:
+study_pop[, `:=` (
+  sglt2_prior_index = PNR %in% sglt2_index[sglt2_prior_index == TRUE]$PNR,
+  glp1a_prior_index = PNR %in% glp1a_index[glp1a_prior_index == TRUE]$PNR,
+  anygld_prior_index = PNR %in% anygld_index[anygld_prior_index == TRUE]$PNR,
+  antilipid_prior_index = PNR %in% antilipid_index[antilipid_prior_index == TRUE]$PNR,
+  high_intensity_statin_prior_index = PNR %in% high_intensity_statin_index[high_intensity_statin_prior_index == TRUE]$PNR,
+  antihypertens_prior_index = PNR %in% antihypertens_index[antihypertens_prior_index == TRUE]$PNR,
+  antithromb_prior_index = PNR %in% antithromb_index[antithromb_prior_index == TRUE]$PNR,
+  antithromb_artery_prior_index = PNR %in% antithromb_artery_index[antithromb_artery_prior_index == TRUE]$PNR,
+  antithromb_venous_prior_index = PNR %in% antithromb_venous_index[antithromb_venous_prior_index == TRUE]$PNR
+)]
+
+# First CP-GLD purchase after/on the index date, to create outcome date:
+
+study_pop_outcomes <- Reduce(
+  function(x, y)
+    merge(x, y, by = 'PNR', all.x = TRUE),
+  list(study_pop,
+       emig_dates,
+       death_dates,
+       sglt2_index[do_sglt2 >= do_dual_diagnosis, .SD[1, .(do_sglt2)], by = PNR],
+       glp1a_index[do_glp1a >= do_dual_diagnosis, .SD[1, .(do_glp1a)], by = PNR],
+       anygld_index[do_anygld >= do_dual_diagnosis, .SD[1, .(do_anygld)], by = PNR],
+       antilipid_index[do_antilipid >= do_dual_diagnosis, .SD[1, .(do_antilipid)], by = PNR],
+       high_intensity_statin_index[do_high_intensity_statin >= do_dual_diagnosis, .SD[1, .(do_high_intensity_statin)], by = PNR],
+       antihypertens_index[do_antihypertens >= do_dual_diagnosis, .SD[1, .(do_antihypertens)], by = PNR],
+       antithromb_index[do_antithromb >= do_dual_diagnosis, .SD[1, .(do_antithromb)], by = PNR],
+       antithromb_artery_index[do_antithromb_artery >= do_dual_diagnosis, .SD[1, .(do_antithromb_artery)], by = PNR],
+       antithromb_venous_index[do_antithromb_venous >= do_dual_diagnosis, .SD[1, .(do_antithromb_venous)], by = PNR]
+       )
+)
+
+
+
+saveRDS(study_pop_outcomes, here("data/source/lasse_study_pop_outcomes.rds"))
+
+rm(list = ls()[grep("^study_pop_outcomes$", ls(), invert = T)])
+
+study_pnrs <- study_pop_outcomes$PNR
+
+# Create datasets of covariates on index date through time ------------------------------
+
+# bef table (civil registration data):
+
+bef_db <- load_register("bef")
+
+# note: bef is joined to index date by year-1 since the bef data for each year corresponds to end-of-year status (is not retrospective)
+
 bef_filtered <-
   bef_db |> filter(year %in% 2011:2021 &
                      PNR %in% study_pnrs) |> select(PNR, year, FOED_DAG, KOEN, CIVST, REG, OPR_LAND)
@@ -119,4 +609,487 @@ bef_years_clean <- bef_years[, .(
   )),
   immigrant = OPR_LAND != 5100
 )]
+
+
+# akm table (employment status):
+
+# note: akm data is joined to index date by year-1 since akm data for each year corresponds to summary for that whole year (is partly retrospective)
+
+akm_db <- load_register("akm")
+
+akm_filtered <-
+  akm_db |> filter(year %in% 2011:2021 &
+                     PNR %in% study_pnrs) |> select(PNR, year, SOCIO13)
+
+akm_years <- collect(akm_filtered)
+setDT(akm_years)
+setkey(akm_years, PNR, year)
+
+
+# faik table (family income):
+
+# note: faik data is joined to index date by year-1 since faik data for each year corresponds to summary for that whole year (is partly retrospective)
+
+
+faik_db <- load_register("faik")
+
+faik_filtered <-
+  faik_db |> filter(year %in% 2011:2021) |> select(FAMILIE_ID, year, FAMAEKVIVADISP_13)
+
+faik_years_pnr <-
+  bef_db |> select(PNR, FAMILIE_ID, year) |>  filter(PNR %in% study_pnrs) |> left_join(faik_filtered, by = join_by(FAMILIE_ID, year))
+
+faik_years <- collect(faik_years_pnr)
+
+setDT(faik_years)
+setkey(faik_years, PNR, year)
+faik_years <- faik_years[, .(PNR, year,  FAMAEKVIVADISP_13)]
+
+# Recode 3 year mean family income to quintiles for each year:
+
+faik_years[, mean_3_years :=
+             zoo::rollapplyr(FAMAEKVIVADISP_13, width = 3, mean, fill = NA, partial = TRUE, na.rm = TRUE), by = PNR]
+
+# Recode as factor with proper labels:
+faik_years[!is.na(FAMAEKVIVADISP_13), adj_family_income_quintile := as.numeric(Hmisc::cut2(mean_3_years, g = 5)),
+           by = .(year)]
+#faik_years[, adj_family_income_percentile := as.numeric(Hmisc::cut2(mean_3_years, g = 100)),
+#           by = .(year)]
+faik_years[, adj_family_income_quintile :=
+             factor(adj_family_income_quintile)]
+
+
+
+
+# udda table (highest attained educational status):
+
+# note: udda data is joined to index date by year-1 since udda data for each year corresponds to education status at end-of-year
+
+
+udda_db <- load_register("udda")
+
+udda_filtered <-
+  udda_db |> filter(year %in% 2011:2021) |> select(PNR, year, HFAUDD)
+
+udda_years <- collect(udda_filtered)
+setDT(udda_years)
+setkey(udda_years, PNR, year)
+
+# Join socio-demographic covariates to population dataset ------------------------------------------
+
+# Time-varying covariates:
+
+# Note YEAR is the year prior to index date:
+
+pop_covars_all <-
+  Reduce(
+    function(x, y)
+      merge(x, y, by = c("PNR", "year"), all.x = TRUE),
+    list(study_pop_outcomes[, year := year(do_dual_diagnosis) - 1],
+         bef_years_clean,
+         faik_years[, .(PNR, year, adj_family_income_quintile)],
+         akm_years,
+         udda_years)
+  )
+
+
+# Save dataset to avoid doing computations again:
+
+saveRDS(pop_covars_all, here("data/source/lasse_pop_covars_all.rds"))
+
+
+# Clean house before continuing:
+rm(list = ls()[grep("pop_covars_all", ls(), invert = T)])
+
+
+
+# Recoding socio-economic variables: --------------------------------------
+
+# Employment status:
+
+# Load formatting table:
+socio13 <- as.data.table(read_sas("E:/Formater/SAS formater i Danmarks Statistik/SAS_datasaet/Times_personstatistik/n_socio13_kt.sas7bdat"))
+
+# Andre inkl. B&U og uregistrerede.
+socio13[, employment_status := as.factor(ifelse(
+  grepl("210|220|321|330", START),
+  "Unemployed",
+  ifelse(grepl("322|323", START), "Retired",
+         "Employed, student or other")
+  # includes ~250.000 code 410 "Other" nationwide.
+))]
+
+
+# Merge to
+pop_covars_empl <- merge(pop_covars_all,
+                        socio13[,.(START, employment_status)],
+                        by.x = "SOCIO13",
+                        by.y = "START",
+                        all.x = T)
+
+# Education level (years)
+# Defined as the sum of:
+# The norm duration of the highest attained education
+# plus the duration of education required for admission to the highest attained education
+
+# Load duration table:
+pria <- as.data.table(read_sas("E:/Formater/SAS formater i Danmarks Statistik/SAS_datasaet/Disced/n_audd_pria_l1lx_k.sas7bdat"))
+
+# Merge formatting to data:
+pop_covars_educ <- merge(pop_covars_empl,
+                        pria[,.(START, education_months = AUDD_PRIA_L1LX_K)],
+                        by.x = "HFAUDD",
+                        by.y = "START",
+                        all.x = T)
+
+# Classify as categorical
+# (since education time is "blocks" of time from each level of the education system, rather than linear):
+pop_covars_educ[, education_years := cut(
+  as.numeric(education_months) / 12,
+  breaks = c(0, 10, 15, Inf),
+  include.lowest = T,
+  right = TRUE
+)]
+
+
+
+
+# Calculate OCD-friendly age and diabetes duration:
+pop_covars_educ[, age_years := as.duration(interval(do_birth, do_dual_diagnosis)) / as.duration(years(1))]
+pop_covars_educ[, diabetes_duration_years := as.duration(interval(do_dm, do_dual_diagnosis)) / as.duration(years(1))]
+
+
+
+# And a few quality of life variables
+pop_covars_educ[, do_exit := as.Date(apply(pop_covars_educ[, c('do_dth',
+                                                               'do_emig')],
+                                           1, min, na.rm = TRUE))]
+
+pop_covars_educ[, do_outcome := as.Date(apply(pop_covars_educ[, c('do_sglt2',
+                                                                  'do_glp1a')],
+                                              1, min, na.rm = TRUE))]
+
+pop_covars_educ[, type_index_event := factor(
+  dplyr::case_when(
+    do_comp == do_dm ~ "CVD and T2D",
+    do_comp > do_dm ~ "CVD",
+    do_dm > do_comp ~ "T2D"
+  )
+)]
+
+pop_covars_educ[, type_outcome_drug := factor(
+  dplyr::case_when(
+    is.na(do_sglt2) & is.na(do_glp1a) ~  NA_character_,
+    do_sglt2 == do_glp1a ~ "SGLT2 and GLP1A",
+    do_sglt2 < do_glp1a | is.na(do_glp1a) ~ "SGLT2",
+    do_glp1a < do_sglt2 | is.na(do_sglt2) ~ "GLP1A"
+  )
+)]
+
+
+# Evaluation of missing data ----------------------------------------------
+
+nrow(pop_covars_educ) # 111,537 (prev. 71,150)
+
+# 4726 are missing data on any covariate:
+nrow(pop_covars_educ[!complete.cases(
+  sex,
+  marital_status,
+  immigrant,
+  adj_family_income_quintile,
+  employment_status,
+  education_years
+)]) # (prev 2,764)
+
+# These are mostly cases of missing data on education.
+# Only 367 are missing data on any of the other covariates:
+nrow(pop_covars_educ[!complete.cases(
+  sex,
+  marital_status,
+  immigrant,
+  adj_family_income_quintile,
+  employment_status
+)]) # (prev 384)
+
+# Most of these individuals are missing information on several of these covariates,
+# and sample size will not increase by dropping some of these variables.
+
+# Missing data is probably due to immigration during the same calendar year as the index date,
+# (thus not being present to generate data during the year before)
+
+
+# Depending on whether education level is included in the analyses or not,
+# the final study population size ends up at 115,626 or 119,931:
+
+nrow(pop_covars_educ[complete.cases(
+  sex,
+  marital_status,
+  immigrant,
+  adj_family_income_quintile,
+  employment_status,
+  education_years
+)]) # 115,626
+
+nrow(pop_covars_educ[complete.cases(
+  sex,
+  marital_status,
+  immigrant,
+  adj_family_income_quintile,
+  employment_status
+)]) # 119,931
+
+
+# Number of outcomes:
+
+# With education:
+nrow(pop_covars_educ[complete.cases(
+  sex,
+  marital_status,
+  immigrant,
+  adj_family_income_quintile,
+  employment_status,
+  education_years
+) & !is.na(do_outcome)]) # 33,305
+
+# Without education
+nrow(pop_covars_educ[complete.cases(
+  sex,
+  marital_status,
+  immigrant,
+  adj_family_income_quintile,
+  employment_status
+) & !is.na(do_outcome)]) # 34,372
+
+# Number of exits:
+
+# With education:
+nrow(pop_covars_educ[complete.cases(
+  sex,
+  marital_status,
+  immigrant,
+  adj_family_income_quintile,
+  employment_status,
+  education_years
+) & !is.na(do_exit)]) # 39,641
+
+# Without education
+nrow(pop_covars_educ[complete.cases(
+  sex,
+  marital_status,
+  immigrant,
+  adj_family_income_quintile,
+  employment_status
+) & !is.na(do_exit)]) # 41,603
+
+
+
+# Biomarker data ----------------------------------------------------------
+
+list_databases()
+lab_dm <- load_database("lab_dm_forsker")
+
+# HbA1c
+
+hba1c <- lab_dm |> filter(ANALYSISCODE == "NPU27300" & VALUE > 0 & PATIENT_CPR %in% !!pop_covars_educ$PNR) |> select(PNR = PATIENT_CPR, do_hba1c = SAMPLINGDATE, value_hba1c = VALUE) |> collect()
+setDT(hba1c, key = c("PNR", "do_hba1c"))
+
+# # LDL-C
+
+ldl <- lab_dm |> filter(ANALYSISCODE %in% c("NPU01568","NPU10171") & VALUE > 0 & PATIENT_CPR %in% !!pop_covars_educ$PNR) |> select(PNR = PATIENT_CPR, do_ldl = SAMPLINGDATE, value_ldl = VALUE) |> collect()
+setDT(ldl, key = c("PNR", "do_ldl"))
+
+# # eGFR & albuminuria
+
+egfr <- lab_dm |> filter(ANALYSISCODE == "DNK35302" & VALUE > 0 & PATIENT_CPR %in% !!pop_covars_educ$PNR) |> select(PNR = PATIENT_CPR, do_egfr = SAMPLINGDATE, value_egfr = VALUE) |> collect()
+setDT(egfr, key = c("PNR", "do_egfr"))
+
+uacr <- lab_dm |> filter(ANALYSISCODE == "NPU19661" & VALUE > 0 & PATIENT_CPR %in% !!pop_covars_educ$PNR) |> select(PNR = PATIENT_CPR, do_uacr = SAMPLINGDATE, value_uacr = VALUE) |> collect()
+setDT(uacr, key = c("PNR", "do_uacr"))
+
+# Cartesian joins to identify the sample taken closest to the index date
+
+biomarker_fun <- function(parent_data, biomarker) {
+
+  # Cartesian join:
+  index_data <- merge(
+    parent_data[, .(PNR, do_dual_diagnosis)],
+    biomarker,
+    by = "PNR",
+    all.x = T,
+    allow.cartesian = T
+  )
+
+  do_arg <- parse(text = paste0("do_", substitute(biomarker)))
+
+  # Filter to only relevant samples
+  index_data <- index_data[eval(do_arg) <= do_dual_diagnosis + 30 &
+                             eval(do_arg) >= do_dual_diagnosis - 180]
+
+  # Calculate distance to index date:
+  index_data[, dist_to_index := abs(eval(do_arg) - do_dual_diagnosis)]
+
+  # Identify interval to prioritize measurements:
+
+  # 1: Closest measurement taken within 30 days BEFORE index date
+  prev30 <- index_data[eval(do_arg) <= do_dual_diagnosis &
+                         eval(do_arg) >= do_dual_diagnosis - 30]
+
+  setkey(prev30, PNR, dist_to_index)
+  prev30_vals <- prev30[, .SD[1, c(2:3)], by = PNR]
+  names(prev30_vals)[2:3] <- paste0(names(prev30_vals)[2:3], "_prev30")
+
+
+  ## 2: Closest measurement taken within 30 days AFTER index date
+  post30 <- index_data[eval(do_arg) > do_dual_diagnosis &
+                         eval(do_arg) <= do_dual_diagnosis + 30]
+
+  setkey(post30, PNR, dist_to_index)
+  post30_vals <- post30[, .SD[1, c(2:3)], by = PNR]
+  names(post30_vals)[2:3] <- paste0(names(post30_vals)[2:3], "_post30")
+
+
+  ## 3: Closest measurement within between 30-180 days before index date:
+  prev180 <- index_data[eval(do_arg) < do_dual_diagnosis - 30]
+
+  setkey(prev180, PNR, dist_to_index)
+  prev180_vals <- prev180[, .SD[1, c(2:3)], by = PNR]
+  names(prev180_vals)[2:3] <- paste0(names(prev180_vals)[2:3], "_prev180")
+
+
+  # Choose appropriate sample depending on availability:
+  all_vals <- Reduce(
+    function(x, y)
+      merge(x, y, by = 'PNR', all = TRUE),
+    list(prev30_vals, post30_vals, prev180_vals)
+  )
+
+  prev30_varname <- parse(text = paste0(
+    "value_", substitute(biomarker), "_prev30"
+  ))
+
+  post30_varname <- parse(text = paste0(
+    "value_", substitute(biomarker), "_post30"
+  ))
+
+  prev180_varname <- parse(text = paste0(
+    "value_", substitute(biomarker), "_prev180"
+  ))
+
+
+  all_vals[, value_ := dplyr::case_when(
+    !is.na(eval(prev30_varname)) ~ eval(prev30_varname),
+    is.na(eval(prev30_varname)) & !is.na(eval(post30_varname)) ~ eval(post30_varname),
+    is.na(eval(prev30_varname)) & is.na(eval(post30_varname)) ~ eval(prev180_varname)
+  )]
+
+  names(all_vals)[8] <- paste0(names(all_vals)[8], substitute(biomarker))
+
+
+  return(all_vals[, c(1,8)])
+  }
+
+
+study_pop_biomarkers <- Reduce(
+  function(x, y)
+    merge(x, y, by = 'PNR', all.x = TRUE),
+  list(pop_covars_educ,
+       biomarker_fun(pop_covars_educ, hba1c),
+       biomarker_fun(pop_covars_educ, ldl),
+       biomarker_fun(pop_covars_educ, egfr),
+       biomarker_fun(pop_covars_educ, uacr)
+))
+
+# # Missing data: out of 120,350 individuals 2012-2022:
+nrow(study_pop_biomarkers[is.na(value_hba1c)]) # 18,439 missing data
+
+#
+# # Keep in mind that some data is missing from South Denmark Region before 2016,
+# # and some LDL-C data is missing from Capital Region in the year 2018.
+#
+#
+# # Subset from South Denmark Region:
+#
+Hmisc::describe(study_pop_biomarkers[region == "South Denmark Region"]$value_hba1c) # 6,821 of 19,883 are missing HbA1c data
+
+
+
+
+# Save final dataset to lasse folder ------------------------------------------------------
+
+
+# Filter out the (old 228) cases with missing civil register data: leaves (old 115,178) individuals.
+# This leaves complete cases, except those missing data on education (old 4,157 individuals), and those without sampled biomarker data around the index date:
+study_pop_clean <- study_pop_biomarkers[complete.cases(sex,
+                                                       marital_status,
+                                                       immigrant,
+                                                       adj_family_income_quintile,
+                                                       employment_status),
+                                        .(
+                                          PNR,
+                                          do_dual_diagnosis,
+                                          do_exit,
+                                          do_outcome,
+
+                                          age_years,
+                                          diabetes_duration_years,
+                                          sex,
+                                          marital_status,
+                                          region,
+                                          #  income_percentile = adj_family_income_percentile,
+                                          income_quintile = adj_family_income_quintile,
+                                          employment_status,
+                                          education_years,
+                                          # origin = factor(
+                                          #   dplyr::case_when(
+                                          #     european_citizen == "Danmark" ~ "Denmark",
+                                          #     european_citizen == "Ikke-vestlige" ~ "Non-western countries",
+                                          #     european_citizen == "Vestlige" ~ "Western countries"
+                                          #   )
+                                          #),
+
+                                          value_hba1c,
+                                          value_ldl,
+                                          value_egfr,
+                                          value_uacr,
+
+                                          sglt2_prior_index,
+                                          glp1a_prior_index,
+                                          antilipid_prior_index,
+                                          intensive_statin_prior_index = high_intensity_statin_prior_index,
+                                          antihypertens_prior_index,
+                                          antithromb_prior_index,
+                                          antithromb_artery_prior_index,
+                                          antithromb_venous_prior_index,
+
+                                          do_anygld,
+                                          do_antilipid,
+                                          do_intensive_statin = do_high_intensity_statin,
+                                          do_antihypertens,
+                                          do_antithromb,
+                                          do_antithromb_artery,
+                                          do_antithromb_venous,
+
+                                          type_index_event,
+                                          type_outcome_drug,
+                                          do_glp1a,
+                                          do_sglt2,
+                                          do_dm,
+                                          do_comp,
+                                          comp_type = factor(comp_type),
+                                          do_emig,
+                                          do_dth,
+                                          do_ischemic_heart_disease = ischemic_heart_disease,
+                                          do_cerebrovascular_disease = cerebrovascular_disease,
+                                          do_peripheral_arterial_disease = peripheral_arterial_disease,
+                                          do_heart_failure = heart_failure,
+                                          do_birth
+
+                                        )]
+
+# Save dataset to lasses folder:
+
+saveRDS(study_pop_clean, here("data", "output", "elena_pop_clean_2025_01_08.rds"))
+# write_dta(study_pop_clean, "E:/workdata/708421/workspaces/Elena/Rådata/elena_pop_clean_2025_01_06.dta")
+
+
 ```
