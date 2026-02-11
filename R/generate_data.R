@@ -135,7 +135,7 @@ generate_background_pop <- function(years_to_generate = 2015:2024,
 #'
 #' @examples
 #' # 1. Generate the stable background population
-#' pop_db <- generate_background_pop(
+#' background_pop <- generate_background_pop(
 #'   years_to_generate = 2015:2024,
 #'   pnrs_per_year = 1000,
 #'   turnover_per_year = 20
@@ -143,7 +143,7 @@ generate_background_pop <- function(years_to_generate = 2015:2024,
 #'
 #' # 2. Generate the longitudinal BEF register
 #' df_bef <- generate_bef(
-#'   background_df = pop_db,
+#'   background_df = background_pop,
 #'   pnrs_per_year = 1000,
 #'   years_to_generate = 2015:2024
 #' )
@@ -185,4 +185,158 @@ generate_bef <- function(background_df,
     purrr::list_rbind()
 
   return(result)
+}
+
+
+#' Generate synthetic administrative LPR data (lpr_adm)
+#'
+#' @description
+#' Generates a synthetic hospital admission register (LPR - Landspatientregisteret).
+#' Unlike in the population register `bef`, an individual can have multiple entries
+#' per year. It generates unique 'RECNUM' identifiers for each admission, which can
+#' be used to link to subsequent tables (e.g., diagnoses).
+#'
+#' @param background_df A tibble containing the background population (source of valid PNRs).
+#' @param n_samples Integer. The number of hospital admissions to simulate per year.
+#' @param years_to_generate A vector of years to generate data for.
+#'
+#' @returns A \code{tibble} with columns:
+#' \itemize{
+#'   \item \code{PNR}: Person ID (sampled from background population).
+#'   \item \code{RECNUM}: Unique 16-digit admission identifier.
+#'   \item \code{D_INDDTO}: Date of admission.
+#'   \item \code{C_SPEC}: 2-digit specialty code (00-99).
+#'   \item \code{year}: Reference year.
+#' }
+#' @export
+generate_lpr_adm <- function(background_df,
+                             n_samples_per_year = 1000,
+                             years_to_generate = 2015:2018) {
+  # HELPER: Generate one year of admission data
+  generate_lpr_adm_year <- function(curr_year) {
+    year_char <- as.character(curr_year)
+
+    # 1. Define Date Range for the current year
+    start_date <- as.Date(paste0(year_char, "-01-01"))
+    end_date <- as.Date(paste0(year_char, "-12-31"))
+    days_in_year <- seq(start_date, end_date, by = "day")
+
+    # 2. Sample PNRs (Allow replacement: one person can have multiple admissions)
+    # We grab n_samples_per_year PNRs from the background pool
+    pnr_pool <- background_df |>
+      dplyr::slice_sample(n = n_samples_per_year, replace = TRUE) |>
+      dplyr::pull(PNR)
+
+    # 3. Generate Data
+    dplyr::tibble(
+      PNR = pnr_pool,
+
+      # RECNUM: Unique 16-digit string for every admission (first eight-digit sequence is unique,
+      # also vs lpr_a_kontakt - which some report may overlap in real data)
+      RECNUM = paste0(
+        sprintf("%06d", sample(0:49999999, n_samples_per_year, replace = FALSE)),
+        replicate(n_samples_per_year, paste0(sample(0:9, 8, replace = TRUE), collapse = ""))
+      ),
+
+      # D_INDDTO: Random date within the year
+      D_INDDTO = sample(days_in_year, n_samples_per_year, replace = TRUE),
+
+      # C_SPEC: Random 2-digit specialty code (00 to 99)
+      C_SPEC = sprintf("%02d", sample(0:99, n_samples_per_year, replace = TRUE)),
+      year = year_char
+    )
+  }
+
+  # EXECUTE MAP & RETURN
+  result <- purrr::map(years_to_generate, generate_lpr_adm_year) |>
+    purrr::list_rbind()
+
+  return(result)
+}
+
+
+#' Generate synthetic LPR3 Contact data (lpr_a_kontakt)
+#'
+#' @description
+#' Generates a synthetic hospital contact register mimicking the structure of LPR3
+#' (Landspatientregisteret version 3), covering the period from 2019-01-01 through
+#' the end of the specified `coverage_through_year`.
+#'
+#' Data is generated as a single continuous pool of random timestamps within this range.
+#'
+#' @param background_df A tibble containing the background population (source of valid PNRs).
+#' @param n_samples Integer. The approximate number of contacts to simulate **per year**.
+#'   Total rows generated will be `n_samples` * (years of coverage).
+#' @param coverage_through_year Integer. The final year of data coverage (inclusive).
+#'   Must be >= 2019. Defaults to 2024.
+#'
+#' @returns A \code{tibble} with columns:
+#' \itemize{
+#'   \item \code{PNR}: Person ID.
+#'   \item \code{dw_ek_kontakt}: Unique 16-digit contact identifier.
+#'   \item \code{kont_starttidspunkt}: Datetime (POSIXct) of the contact start.
+#'   \item \code{kont_ans_hovedspec}: Medical specialty name.
+#' }
+#' @export
+generate_lpr_a_kontakt <- function(background_df,
+                                   n_samples_per_year = 1000,
+                                   coverage_through_year = 2024) {
+  if (coverage_through_year < 2019) {
+    stop("LPR3 data (lpr_a_kontakt) can only be generated from 2019 onwards.")
+  }
+
+
+  # 1. Define the full time window
+  # Start: 2019-01-01 00:00:00
+  t_start <- as.POSIXct("2019-01-01 00:00:00")
+  # End: Dec 31st of the coverage year
+  t_end <- as.POSIXct(paste0(coverage_through_year, "-12-31 23:59:59"))
+
+  # Calculate duration in seconds
+  total_duration_secs <- as.numeric(difftime(t_end, t_start, units = "secs"))
+
+  # 2. Calculate total sample size
+  # We scale the annual 'n_samples' by the number of years covered
+  num_years <- coverage_through_year - 2019 + 1
+  total_n <- n_samples_per_year * num_years
+
+  # 3. Define Specialties List
+  specialties_list <- c(
+    "Blandet medicin og kirurgi", "Intern medicin", "Geriatri", "Hepatologi",
+    "Hæmatologi", "Infektionsmedicin", "Kardiologi", "Medicinsk allergologi",
+    "Medicinsk endokrinologi", "Medicinsk gastroenterologi", "Medicinsk lungesygdomme",
+    "Nefrologi", "Reumatologi", "Palliativ medicin", "Akut medicin",
+    "Dermato-venerologi", "Neurologi", "Onkologi", "Fysiurgi", "Tropemedicin",
+    "Kirurgi", "Karkirurgi", "Kirurgisk gastroenterologi", "Plastikkirurgi",
+    "Thoraxkirurgi", "Urologi", "Gynækologi og obstetrik", "Sexologi",
+    "Neurokirurgi", "Ortopædisk kirurgi", "Oftalmologi", "Oto-, rhino-, laryngologi",
+    "Hospitalsodontologi", "Psykiatri", "Børne- og ungdomspsykiatri",
+    "Klinisk biokemi", "Klinisk fysiologi og nuclearmedicin", "Klinisk immunologi",
+    "Klinisk mikrobiolog", "Klinisk neurofysiologi", "Patologisk anatomi",
+    "Diagnostisk radiologi", "Klinisk farmakologi", "Klinisk genetik", "Pædiatri",
+    "Anæstesiologi", "Arbejdsmedicin", "Miljømedicin", "Almen medicin",
+    "Samfundsmedicin", "Retsmedicin", "Fysio- og ergoterapi", "Ikke klassificeret"
+  )
+
+  # 4. Generate Data
+  dplyr::tibble(
+    # Sample PNRs from the background pool (with replacement)
+    PNR = background_df |>
+      dplyr::slice_sample(n = total_n, replace = TRUE) |>
+      dplyr::pull(PNR),
+
+    # dw_ek_kontakt: Unique 16-digit string (first eight-digit sequence is unique,
+    # also vs lpr_a_kontakt - which some report may overlap in real data)
+    dw_ek_kontakt = paste0(
+      sprintf("%06d", sample(50000000:99999999, total_n, replace = FALSE)),
+      replicate(total_n, paste0(sample(0:9, 8, replace = TRUE), collapse = ""))
+    ),
+
+    # kont_starttidspunkt: Random datetime within the full window
+    # t_start + random seconds
+    kont_starttidspunkt = t_start + runif(total_n, min = 0, max = total_duration_secs),
+
+    # kont_ans_hovedspec: Random specialty
+    kont_ans_hovedspec = sample(specialties_list, total_n, replace = TRUE)
+  ) |> dplyr::arrange(.data$kont_starttidspunkt)
 }
