@@ -15,6 +15,8 @@ The beginning of most sections of this walkthrough contains a code chunk that se
 
 In some real-world scenarios, you may be on your own in a project with only the raw SAS data. In this situation, you would first need to convert your raw SAS files to a more practical format like Parquet (the `fastregs` package can help you) and store them in a similar structure as is done in this guide (data from each register is stored inside separate folders). Then you can load your data from those Parquet files in the same way as shown below.
 
+One final note: the variable names in the fake data used here are lower-cased, whereas the real data often has inconsistent casing, which you will need to process according. At the time of writing, the newest version of `duckplyr` (1.1.3) seems to support converting all column names e.g. to lower-case with `dplyr::rename_with()`, e.g. `dplyr::rename_with(bef_ddb, tolower)`.
+
 ### Let's go
 
 Let's get to work with some actual fake data and real code!
@@ -70,9 +72,11 @@ Tasks:
 
 ### 1: Load
 
-The key step here is to read the Arrow Tables from the Parquet files (`bef_folder |> arrow::open_dataset(unify_schemas = TRUE)`) into DuckDB (by piping it into `arrow::to_duckdb() |> dplyr::compute()`). If can add operations betweent the two parts to e.g. filter the data in Arrow before converting it to DuckDB. This way you will have less data to convert to DuckDB, and spend less time and system memory on the conversion.
+The key step here is to read the Arrow Tables from the Parquet files (`bef_folder |> arrow::open_dataset(unify_schemas = TRUE)`) into DuckDB (by piping it into `arrow::to_duckdb() |> dplyr::compute()`). You can add operations betweent the two parts to e.g. filter the data in Arrow before converting it to DuckDB. This way you will have less data to convert to DuckDB, and spend less time and system memory on the conversion.
 
-Depending on the functions you need to execute, and the `arrow` and `duckplyr` package versions, you can sometimes get away with not using `dplyr::compute()` to load the data into DuckDB, but it's a good habit to exercise.
+`arrow` and `duckplyr` will often help you out if you forget it, and you can sometimes get away with not calling `dplyr::compute()` to load the data into DuckDB or `dplyr::collect()` to load it from Arrow/DuckDB into R, but it's a good habit to be explicit and conscious of when those commands are called.
+
+Let's look at `bef`. In order to look at it in R, we have to collect it into R. Make sure to called `head()` or other filtering operations before `dplyr::collect()` to avoid loading the entire dataset into R, when you just want a short glance at its contents:
 
 ```{r load-bef}
 
@@ -83,56 +87,76 @@ bef_ddb <- bef_folder |> arrow::open_dataset(unify_schemas = TRUE) |>
   # You can add cleaning steps in Arrow here before converting to DuckDB
   arrow::to_duckdb() |> dplyr::compute()
 
-bef_df <- bef_ddb |> dplyr::collect()
+bef_df <- bef_ddb |> head() |>  dplyr::collect()
 
 bef_df
+```
+
+A quick way to tell if your object is an R data.frame or an Arrow or DuckDB connection, is to use `class()` (or look at the environment tab, where Arrow and DuckDB connections will appear funky):
+
+```{r check-object-type}
+
+cat("R data.frame object:\n")
+bef_head_df <- bef_ddb |> head() |>  dplyr::collect()
+class(bef_head_df)
+cat("\n")
+
+cat("DuckDB connection object:\n")
+bef_head_ddb <- bef_ddb |> head()
+class(bef_head_ddb)
+cat("\n")
+
+cat("Arrow connection object:\n")
+bef_head_arrow <- bef_folder |> arrow::open_dataset(unify_schemas = TRUE) |> head()
+class(bef_head_arrow)
 ```
 
 ### 2: Filter
 
 In this example, we only need adults alive and residing in Denmark between 2020 and 2024 for our analyses.
 
-```{r}
-bef_filtered <-
-  bef |> dplyr::filter(year %in% 2020:2024 & ALDER >= 18) |>
-  dplyr::select(PNR, year, FOED_DAG, KOEN, CIVST, REG, OPR_LAND)
+Note that we perform these filtering steps on the DuckDB connection object (not an R data.frame object) which allows `duckplyr` to inject it's magic into `dplyr`
 
-# Keep the list of pnr's for later filtering:
-filtered_pnrs <- bef_filtered |> dplyr::pull(PNR)
+```{r filter-bef}
+bef_ddb_filtered <-
+  bef_ddb |> dplyr::filter(year %in% 2020:2024 & alder >= 18) |>
+  dplyr::select(pnr, year, foed_dag, koen, civst, reg, opr_land)
 ```
 
-### 3: Convert
+### 3: Convert to clean variables
 
-```{r}
+Next, we'll generate the variables we want from the raw data to get a "clean" dataset. Again, note that we do the data processing on the DuckDB connection object (but to inspect/illustrate the changes, we'll load in some of the resulting dataset from DuckDB to R at the end of the chunk here):
 
-bef_clean <- bef_filtered |>
+```{r clean-bef}
+
+bef_ddb_clean <- bef_ddb_filtered |>
   dplyr::mutate(
-    PNR = PNR,
+    pnr = pnr,
     year = year,
-    do_birth = as.Date(FOED_DAG),
+    date_of_birth = as.Date(foed_dag),
     
-    sex = dplyr::if_else(KOEN == '1', 'Male', 'Female'),
+    sex = dplyr::if_else(koen == '1', 'Male', 'Female'),
     
     marital_status = dplyr::case_when(
-      CIVST %in% c("G", "P") ~ "Married",
-      CIVST %in% c("F", "O", "E", "L") ~ "Divorced or widowed",
-      CIVST == "U" ~ "Unmarried",
+      civst %in% c("G", "P") ~ "Married",
+      civst %in% c("F", "O", "E", "L") ~ "Divorced or widowed",
+      civst == "U" ~ "Unmarried",
       TRUE ~ NA_character_
     ),
     
     region = dplyr::case_when(
-      REG == 81 ~ "North Denmark Region",
-      REG == 82 ~ "Central Denmark Region",
-      REG == 83 ~ "South Denmark Region",
-      REG == 84 ~ "Capital Region",
-      REG == 85 ~ "Zealand Region",
+      reg == 81 ~ "North Denmark Region",
+      reg == 82 ~ "Central Denmark Region",
+      reg == 83 ~ "South Denmark Region",
+      reg == 84 ~ "Capital Region",
+      reg == 85 ~ "Zealand Region",
       TRUE ~ NA_character_
     ),
     
-    immigrant = OPR_LAND != 5100
+    immigrant = opr_land != 5100
   )
 
-bef_clean |>  dplyr::collect()
+bef_ddb_clean |>  head() |> dplyr::collect()
 ```
 
 ## LPR
