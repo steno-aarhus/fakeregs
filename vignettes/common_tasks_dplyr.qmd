@@ -23,7 +23,7 @@ Let's get to work with some actual fake data and real code!
 
 Through-out the examples, I use the `package::function` syntax to be explicit about which packages the functions are from. In a normal workflow, this isn't necessary after loading the libraries - e.g. after running `library(dplyr)`, you can use e.g. `select()` instead of `dplyr::select()` just fine.
 
-First, we need to generate the synthetic data to mimic the DST environment and run the examples on:
+We need to generate the synthetic data to mimic the DST environment and run the examples on. But first, make sure you have the necessary packages installed, if you're running this as a script:
 
 ```{r setup-dependencies}
 
@@ -32,10 +32,11 @@ packages_to_check <- c("dplyr", "purrr", "tibble", "lubridate", "here", "arrow",
 
 data.frame(
   Package = packages_to_check,
-  IsInstalled = packages_to_check %in% row.names(installed.packages())
+  IsInstalled = packages_to_check %in% row.names(installed.packages()),
+  Version = sapply(packages_to_check, function(x) {
+    tryCatch(as.character(packageVersion(x)), error = function(e) "Not installed")
+  })
 )
-
-
 
 
 # Source (run) the script containing the functions to generate synthetic data to import them:
