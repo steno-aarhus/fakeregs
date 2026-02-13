@@ -3,3 +3,9 @@
 .RData
 .Ruserdata
 /data-parquet/
+inst/doc
+docs
+/doc/
+/Meta/
+/pkgdown/
+/dev/

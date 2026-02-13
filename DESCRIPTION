@@ -22,7 +22,8 @@ Imports:
     here,
     arrow,
     duckplyr,
-    fs
+    fs,
+    utils
 Suggests:
     knitr,
     quarto,
