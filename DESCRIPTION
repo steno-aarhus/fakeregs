@@ -5,7 +5,7 @@ Version: 0.0.1
 Authors@R: c(
     person(c("Anders", "Aasted"), "Isaksen", , "andaas@rm.dk", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0001-8457-5466")),
-    person("Steno Diabetes Center Aarhus", role = "cph"),
+    person("Steno Diabetes Center Aarhus", role = "cph")
   )
 Description: A package to synthesize register data and run a data processing pipeline to illustrate the most common tasks encountered when conducting register-based research
 License: MIT + file LICENSE

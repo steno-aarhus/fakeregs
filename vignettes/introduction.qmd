@@ -1,5 +1,5 @@
 ---
-title: "Introduction to Arrow and DuckDB in R"
+title: "Introduction to Parquet, Arrow and DuckDB in R"
 author: "Anders Aasted Isaksen"
 format: html
 editor: visual
